@@ -127,6 +127,12 @@ body {
   isolation: isolate;
 }
 
+.canvas-viewport {
+  position: absolute;
+  inset: 0;
+  transform-origin: top left;
+}
+
 .canvas-surface.stamp-mode-surface {
   cursor: copy;
 }
@@ -167,6 +173,21 @@ body {
   background: rgba(255, 255, 255, 0.9);
   font-size: 0.85rem;
   color: #28452e;
+  pointer-events: none;
+}
+
+.canvas-zoom-indicator {
+  position: absolute;
+  right: 12px;
+  top: 96px;
+  z-index: 4;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #c4d4c0;
+  background: rgba(255, 255, 255, 0.88);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #2d4f35;
   pointer-events: none;
 }
 
@@ -467,5 +488,11 @@ body {
 
   .canvas-hint {
     max-width: calc(100% - 24px);
+  }
+
+  .canvas-zoom-indicator {
+    top: auto;
+    bottom: 12px;
+    right: 12px;
   }
 }

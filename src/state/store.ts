@@ -5,11 +5,13 @@ import { createStore, type StateCreator } from 'zustand/vanilla';
 import {
   HISTORY_LIMIT,
   type HistoryEntry,
+  type HistorySnapshot,
   type LandscaperState,
   type LandscaperStore,
   type Plan,
   type PlanElement,
   type Stamp,
+  type UiState,
 } from './types';
 
 const SEEDED_ELEMENT_ID = 'element-seeded-shrub';
@@ -48,6 +50,12 @@ const clonePlan = (plan: Plan): Plan => ({
   viewport: { ...plan.viewport },
 });
 
+const cloneUi = (ui: UiState): UiState => ({
+  activeTool: ui.activeTool,
+  selectedElementId: ui.selectedElementId,
+  selection: { ...ui.selection },
+});
+
 const historyEntryId = (() => {
   let current = 0;
   return () => {
@@ -78,12 +86,16 @@ const createHistoryEntry = (state: LandscaperState, label: string): HistoryEntry
   timestamp: new Date().toISOString(),
   snapshot: {
     plan: clonePlan(state.plan),
-    ui: {
-      activeTool: state.ui.activeTool,
-      selectedElementId: state.ui.selectedElementId,
-      selection: { ...state.ui.selection },
-    },
+    ui: cloneUi(state.ui),
   },
+});
+
+const restoreFromSnapshot = (snapshot: HistorySnapshot, currentViewport: Plan['viewport']) => ({
+  plan: {
+    ...clonePlan(snapshot.plan),
+    viewport: { ...currentViewport },
+  },
+  ui: cloneUi(snapshot.ui),
 });
 
 const appendHistory = (state: LandscaperState, label: string) => {
@@ -147,17 +159,27 @@ const storeCreator: StateCreator<LandscaperStore> = (set) => ({
 
   setViewport: (viewport) =>
     set(
-      (state) => ({
-        ...state,
-        history: appendHistory(state, 'Adjust viewport'),
-        plan: {
-          ...state.plan,
-          viewport: {
-            ...state.plan.viewport,
-            ...viewport,
+      (state) => {
+        const nextViewport = {
+          ...state.plan.viewport,
+          ...viewport,
+        };
+        if (
+          nextViewport.zoom === state.plan.viewport.zoom &&
+          nextViewport.panX === state.plan.viewport.panX &&
+          nextViewport.panY === state.plan.viewport.panY
+        ) {
+          return state;
+        }
+
+        return {
+          ...state,
+          plan: {
+            ...state.plan,
+            viewport: nextViewport,
           },
-        },
-      }),
+        };
+      },
       false,
       'plan/setViewport',
     ),
@@ -469,6 +491,56 @@ const storeCreator: StateCreator<LandscaperStore> = (set) => ({
       }),
       false,
       'history/pushCheckpoint',
+    ),
+
+  undo: () =>
+    set(
+      (state) => {
+        const previousEntry = state.history.past.at(-1);
+        if (!previousEntry) {
+          return state;
+        }
+
+        const currentEntry = createHistoryEntry(state, `Redo ${previousEntry.label}`);
+        const restoredSnapshot = restoreFromSnapshot(previousEntry.snapshot, state.plan.viewport);
+
+        return {
+          ...state,
+          ...restoredSnapshot,
+          history: {
+            ...state.history,
+            past: state.history.past.slice(0, -1),
+            future: [currentEntry, ...state.history.future].slice(0, state.history.limit),
+          },
+        };
+      },
+      false,
+      'history/undo',
+    ),
+
+  redo: () =>
+    set(
+      (state) => {
+        const nextEntry = state.history.future[0];
+        if (!nextEntry) {
+          return state;
+        }
+
+        const currentEntry = createHistoryEntry(state, `Undo ${nextEntry.label}`);
+        const restoredSnapshot = restoreFromSnapshot(nextEntry.snapshot, state.plan.viewport);
+
+        return {
+          ...state,
+          ...restoredSnapshot,
+          history: {
+            ...state.history,
+            past: [...state.history.past, currentEntry].slice(-state.history.limit),
+            future: state.history.future.slice(1),
+          },
+        };
+      },
+      false,
+      'history/redo',
     ),
 });
 

@@ -6,6 +6,7 @@ import {
   useState,
   type ChangeEvent,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from 'react';
 
 import { BACKGROUND_IMAGE_MAX_MB, readFileAsDataUrl, validateBackgroundFile } from './backgroundUpload';
@@ -28,6 +29,8 @@ const STAMP_BASE_SIZE = 56;
 const STAMP_MIN_SCALE = 0.2;
 const STAMP_MAX_SCALE = 6;
 const CANVAS_CENTER_FALLBACK = { x: 320, y: 260 };
+const MIN_CANVAS_ZOOM = 0.4;
+const MAX_CANVAS_ZOOM = 2.6;
 
 type ResizeHandle = 'top' | 'right' | 'bottom' | 'left';
 
@@ -81,6 +84,20 @@ const createDefaultElement = (elementCount: number): PlanElement => ({
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
+const isEditableTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName;
+  return (
+    target.isContentEditable ||
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT'
+  );
+};
+
 const renderShape = (shapeId: ShapeId, color: string) => {
   switch (shapeId) {
     case 'circle':
@@ -111,6 +128,8 @@ function App() {
   const backgroundImage = useLandscaperStore((state) => state.plan.backgroundImage);
   const setPlanName = useLandscaperStore((state) => state.setPlanName);
   const setBackgroundImage = useLandscaperStore((state) => state.setBackgroundImage);
+  const viewport = useLandscaperStore((state) => state.plan.viewport);
+  const setViewport = useLandscaperStore((state) => state.setViewport);
   const activeTool = useLandscaperStore((state) => state.ui.activeTool);
   const setActiveTool = useLandscaperStore((state) => state.setActiveTool);
   const resizeMode = useLandscaperStore((state) => state.ui.selection.resizeMode);
@@ -128,7 +147,10 @@ function App() {
   const moveStamp = useLandscaperStore((state) => state.moveStamp);
   const bringStampToFront = useLandscaperStore((state) => state.bringStampToFront);
   const sendStampToBack = useLandscaperStore((state) => state.sendStampToBack);
+  const undo = useLandscaperStore((state) => state.undo);
+  const redo = useLandscaperStore((state) => state.redo);
   const historyCount = useLandscaperStore((state) => state.history.past.length);
+  const futureHistoryCount = useLandscaperStore((state) => state.history.future.length);
   const [backgroundUploadError, setBackgroundUploadError] = useState<string | null>(null);
   const [isShapePickerOpen, setIsShapePickerOpen] = useState(false);
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -152,6 +174,15 @@ function App() {
     () => stamps.find((stamp) => stamp.id === selectedStampId) ?? null,
     [selectedStampId, stamps],
   );
+  const canUndo = historyCount > 0;
+  const canRedo = futureHistoryCount > 0;
+
+  const viewportTransformStyle = useMemo(
+    () => ({
+      transform: `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.zoom})`,
+    }),
+    [viewport.panX, viewport.panY, viewport.zoom],
+  );
 
   const getCanvasPoint = useCallback((clientX: number, clientY: number) => {
     const surfaceRect = canvasSurfaceRef.current?.getBoundingClientRect();
@@ -159,13 +190,17 @@ function App() {
       return null;
     }
 
+    const zoom = viewport.zoom > 0 ? viewport.zoom : 1;
+    const width = surfaceRect.width / zoom;
+    const height = surfaceRect.height / zoom;
+
     return {
-      x: clamp(clientX - surfaceRect.left, 0, surfaceRect.width),
-      y: clamp(clientY - surfaceRect.top, 0, surfaceRect.height),
-      width: surfaceRect.width,
-      height: surfaceRect.height,
+      x: clamp((clientX - surfaceRect.left - viewport.panX) / zoom, 0, width),
+      y: clamp((clientY - surfaceRect.top - viewport.panY) / zoom, 0, height),
+      width,
+      height,
     };
-  }, []);
+  }, [viewport.panX, viewport.panY, viewport.zoom]);
 
   const getCanvasCenter = useCallback(() => {
     const surfaceRect = canvasSurfaceRef.current?.getBoundingClientRect();
@@ -173,11 +208,15 @@ function App() {
       return CANVAS_CENTER_FALLBACK;
     }
 
+    const zoom = viewport.zoom > 0 ? viewport.zoom : 1;
+    const width = surfaceRect.width / zoom;
+    const height = surfaceRect.height / zoom;
+
     return {
-      x: surfaceRect.width / 2,
-      y: surfaceRect.height / 2,
+      x: clamp((surfaceRect.width / 2 - viewport.panX) / zoom, 0, width),
+      y: clamp((surfaceRect.height / 2 - viewport.panY) / zoom, 0, height),
     };
-  }, []);
+  }, [viewport.panX, viewport.panY, viewport.zoom]);
 
   useEffect(() => {
     if (!selectedElementId && elements.length > 0) {
@@ -195,6 +234,50 @@ function App() {
       setResizeMode(false);
     }
   }, [activeTool, resizeMode, setResizeMode]);
+
+  const runUndo = useCallback(() => {
+    setDragState(null);
+    setDragPreview(null);
+    setResizeState(null);
+    undo();
+  }, [undo]);
+
+  const runRedo = useCallback(() => {
+    setDragState(null);
+    setDragPreview(null);
+    setResizeState(null);
+    redo();
+  }, [redo]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const hasUndoModifier = event.metaKey || event.ctrlKey;
+      if (!hasUndoModifier || isEditableTarget(event.target)) {
+        return;
+      }
+
+      const pressedKey = event.key.toLowerCase();
+      const shouldUndo = pressedKey === 'z' && !event.shiftKey;
+      const shouldRedo = (pressedKey === 'z' && event.shiftKey) || pressedKey === 'y';
+
+      if (shouldUndo && canUndo) {
+        event.preventDefault();
+        runUndo();
+        return;
+      }
+
+      if (shouldRedo && canRedo) {
+        event.preventDefault();
+        runRedo();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [canRedo, canUndo, runRedo, runUndo]);
 
   const handleBackgroundFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
@@ -261,6 +344,24 @@ function App() {
     setDragState(null);
     setDragPreview(null);
     setResizeState(null);
+  };
+
+  const handleCanvasWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const zoomDelta = -event.deltaY * 0.0015;
+    const nextZoom = clamp(viewport.zoom * (1 + zoomDelta), MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM);
+    if (Math.abs(nextZoom - viewport.zoom) < 0.0001) {
+      return;
+    }
+
+    setViewport({
+      zoom: Number(nextZoom.toFixed(3)),
+    });
   };
 
   const handleStampPointerDown = (
@@ -462,10 +563,22 @@ function App() {
           ))}
         </div>
         <div className="toolbar-group">
-          <button type="button" className="tool-button" disabled>
+          <button
+            type="button"
+            className="tool-button"
+            onClick={runUndo}
+            disabled={!canUndo}
+            title="Undo (Ctrl/Cmd+Z)"
+          >
             Undo
           </button>
-          <button type="button" className="tool-button" disabled>
+          <button
+            type="button"
+            className="tool-button"
+            onClick={runRedo}
+            disabled={!canRedo}
+            title="Redo (Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y)"
+          >
             Redo
           </button>
         </div>
@@ -499,82 +612,88 @@ function App() {
             ref={canvasSurfaceRef}
             className={activeTool === 'stamp' ? 'canvas-surface stamp-mode-surface' : 'canvas-surface'}
             onPointerDown={handleCanvasPointerDown}
+            onWheel={handleCanvasWheel}
           >
-            {backgroundImage ? (
-              <img src={backgroundImage} alt="Plan background" className="canvas-background-image" />
-            ) : (
-              <p className="canvas-empty-state">
-                Upload a background image (under {BACKGROUND_IMAGE_MAX_MB}MB) to start your layout.
-              </p>
-            )}
+            <div className="canvas-viewport" style={viewportTransformStyle}>
+              {backgroundImage ? (
+                <img src={backgroundImage} alt="Plan background" className="canvas-background-image" />
+              ) : (
+                <p className="canvas-empty-state">
+                  Upload a background image (under {BACKGROUND_IMAGE_MAX_MB}MB) to start your layout.
+                </p>
+              )}
+              <div className={activeTool === 'stamp' ? 'stamp-layer stamp-layer-disabled' : 'stamp-layer'}>
+                {sortedStamps.map((stamp) => {
+                  const stampElementDefinition = elementsById.get(stamp.elementId);
+                  if (!stampElementDefinition) {
+                    return null;
+                  }
+
+                  const previewPosition =
+                    dragPreview && dragPreview.stampId === stamp.id
+                      ? { x: dragPreview.x, y: dragPreview.y }
+                      : { x: stamp.x, y: stamp.y };
+                  const effectiveScale =
+                    resizeState && resizeState.elementId === stamp.elementId
+                      ? resizeState.previewScale
+                      : stampElementDefinition.scale;
+                  const stampSize = effectiveScale * STAMP_BASE_SIZE;
+                  const isSelected = stamp.id === selectedStampId;
+                  const isDragging = dragState?.stampId === stamp.id;
+                  const stampShapeColor = colorToHex[stampElementDefinition.color];
+
+                  return (
+                    <button
+                      key={stamp.id}
+                      type="button"
+                      className={
+                        isSelected
+                          ? isDragging
+                            ? 'stamp-item selected dragging'
+                            : 'stamp-item selected'
+                          : 'stamp-item'
+                      }
+                      style={{
+                        width: `${stampSize}px`,
+                        height: `${stampSize}px`,
+                        left: `${previewPosition.x - stampSize / 2}px`,
+                        top: `${previewPosition.y - stampSize / 2}px`,
+                        zIndex: stamp.zIndex + 100,
+                      }}
+                      onPointerDown={(event) => handleStampPointerDown(event, stamp)}
+                      aria-label={`Stamp ${stampElementDefinition.name}`}
+                    >
+                      <svg className="stamp-shape" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+                        {renderShape(stampElementDefinition.shapeId, stampShapeColor)}
+                      </svg>
+                      {isSelected && resizeMode ? (
+                        <div className="resize-handle-layer">
+                          {(['top', 'right', 'bottom', 'left'] as const).map((handle) => (
+                            <span
+                              key={handle}
+                              className={`resize-handle handle-${handle}`}
+                              onPointerDown={(event) =>
+                                handleResizeHandlePointerDown(event, stamp, stampElementDefinition, handle)
+                              }
+                            />
+                          ))}
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <p className="canvas-hint" role="status">
               {activeTool === 'stamp'
                 ? 'Stamp tool active: click anywhere in the canvas to place the selected element.'
                 : resizeMode
                   ? 'Resize mode active: drag the edge handles to scale the selected stamp from center.'
                   : 'Select tool active: click a stamp to select and drag it.'}
+              {' '}
+              Shift+Scroll zooms the canvas.
             </p>
-            <div className={activeTool === 'stamp' ? 'stamp-layer stamp-layer-disabled' : 'stamp-layer'}>
-              {sortedStamps.map((stamp) => {
-                const stampElementDefinition = elementsById.get(stamp.elementId);
-                if (!stampElementDefinition) {
-                  return null;
-                }
-
-                const previewPosition =
-                  dragPreview && dragPreview.stampId === stamp.id
-                    ? { x: dragPreview.x, y: dragPreview.y }
-                    : { x: stamp.x, y: stamp.y };
-                const effectiveScale =
-                  resizeState && resizeState.elementId === stamp.elementId
-                    ? resizeState.previewScale
-                    : stampElementDefinition.scale;
-                const stampSize = effectiveScale * STAMP_BASE_SIZE;
-                const isSelected = stamp.id === selectedStampId;
-                const isDragging = dragState?.stampId === stamp.id;
-                const stampShapeColor = colorToHex[stampElementDefinition.color];
-
-                return (
-                  <button
-                    key={stamp.id}
-                    type="button"
-                    className={
-                      isSelected
-                        ? isDragging
-                          ? 'stamp-item selected dragging'
-                          : 'stamp-item selected'
-                        : 'stamp-item'
-                    }
-                    style={{
-                      width: `${stampSize}px`,
-                      height: `${stampSize}px`,
-                      left: `${previewPosition.x - stampSize / 2}px`,
-                      top: `${previewPosition.y - stampSize / 2}px`,
-                      zIndex: stamp.zIndex + 100,
-                    }}
-                    onPointerDown={(event) => handleStampPointerDown(event, stamp)}
-                    aria-label={`Stamp ${stampElementDefinition.name}`}
-                  >
-                    <svg className="stamp-shape" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-                      {renderShape(stampElementDefinition.shapeId, stampShapeColor)}
-                    </svg>
-                    {isSelected && resizeMode ? (
-                      <div className="resize-handle-layer">
-                        {(['top', 'right', 'bottom', 'left'] as const).map((handle) => (
-                          <span
-                            key={handle}
-                            className={`resize-handle handle-${handle}`}
-                            onPointerDown={(event) =>
-                              handleResizeHandlePointerDown(event, stamp, stampElementDefinition, handle)
-                            }
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
+            <div className="canvas-zoom-indicator">Zoom {Math.round(viewport.zoom * 100)}%</div>
             <dl className="canvas-summary">
               <dt>Elements</dt>
               <dd>{elements.length}</dd>
@@ -586,6 +705,8 @@ function App() {
               <dd>{selectedStampSize ? `${selectedStampSize.toFixed(1)}px` : 'None'}</dd>
               <dt>History checkpoints</dt>
               <dd>{historyCount}</dd>
+              <dt>Redo checkpoints</dt>
+              <dd>{futureHistoryCount}</dd>
             </dl>
           </div>
         </section>

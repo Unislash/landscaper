@@ -21,3 +21,12 @@
   - Added resize mode with edge handles and center-based scaling that updates element-level `scale`.
   - Added resize fallback behavior: if no stamp exists for the selected element, create one at canvas center and enter resize mode.
   - Extended store types/actions for stamp creation, movement, and z-ordering, with Vitest coverage for these mutations.
+- Implemented Phase 4 undo/redo + zoom + shortcuts from `DesignDoc.md`:
+  - Added store-level undo/redo actions that restore prior snapshots and maintain `past`/`future` history stacks.
+  - Wired left-toolbar Undo/Redo buttons to active history state, including disabled behavior when no action is available.
+  - Added keyboard shortcuts:
+    - Undo: `Ctrl/Cmd+Z`
+    - Redo: `Ctrl/Cmd+Shift+Z` and `Ctrl/Cmd+Y`
+  - Added shift+scroll canvas zoom using the plan viewport (`zoom`) and applied scaling at viewport render level instead of rewriting stamp coordinates.
+  - Updated pointer-to-canvas coordinate conversion to account for viewport zoom so stamping, selection, dragging, and resize still operate in canvas units.
+  - Added Vitest coverage for undo/redo flows and viewport zoom mutation behavior.

@@ -112,6 +112,8 @@ export interface UiMutations {
 
 export interface HistoryMutations {
   pushHistoryCheckpoint: (label: string) => void;
+  undo: () => void;
+  redo: () => void;
 }
 
 export type LandscaperActions = PlanMutations &

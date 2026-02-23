@@ -183,4 +183,64 @@ describe('landscaper store foundation', () => {
     expect(firstAfterBack?.zIndex).toBeLessThan(secondAfterBack?.zIndex ?? 0);
     expect(state.history.past.at(-1)?.label).toBe('Send stamp to back');
   });
+
+  it('undo and redo restore plan snapshots', () => {
+    store.getState().setPlanName('Front Plan');
+    const stampId = store.getState().stampElement(SEEDED_ELEMENT_ID, { x: 210, y: 190 });
+    if (!stampId) {
+      throw new Error('Expected stamp id');
+    }
+
+    let state = store.getState();
+    expect(state.plan.name).toBe('Front Plan');
+    expect(state.plan.stamps).toHaveLength(1);
+    expect(state.history.past).toHaveLength(2);
+    expect(state.history.future).toHaveLength(0);
+
+    store.getState().undo();
+    state = store.getState();
+    expect(state.plan.name).toBe('Front Plan');
+    expect(state.plan.stamps).toHaveLength(0);
+    expect(state.history.past).toHaveLength(1);
+    expect(state.history.future).toHaveLength(1);
+
+    store.getState().undo();
+    state = store.getState();
+    expect(state.plan.name).toBe('Untitled Plan');
+    expect(state.history.past).toHaveLength(0);
+    expect(state.history.future).toHaveLength(2);
+
+    store.getState().redo();
+    state = store.getState();
+    expect(state.plan.name).toBe('Front Plan');
+    expect(state.plan.stamps).toHaveLength(0);
+    expect(state.history.past).toHaveLength(1);
+    expect(state.history.future).toHaveLength(1);
+
+    store.getState().redo();
+    state = store.getState();
+    expect(state.plan.name).toBe('Front Plan');
+    expect(state.plan.stamps).toHaveLength(1);
+    expect(state.history.past).toHaveLength(2);
+    expect(state.history.future).toHaveLength(0);
+  });
+
+  it('does not push history entries for viewport-only zoom changes', () => {
+    store.getState().setViewport({ zoom: 1.25 });
+
+    const state = store.getState();
+    expect(state.plan.viewport.zoom).toBe(1.25);
+    expect(state.history.past).toHaveLength(0);
+    expect(state.history.future).toHaveLength(0);
+  });
+
+  it('undo and redo are safe no-ops when stacks are empty', () => {
+    store.getState().undo();
+    store.getState().redo();
+
+    const state = store.getState();
+    expect(state.plan.name).toBe('Untitled Plan');
+    expect(state.history.past).toHaveLength(0);
+    expect(state.history.future).toHaveLength(0);
+  });
 });
