@@ -25,7 +25,6 @@ Landscaper is a browser-based layout tool for planning outdoor spaces. Users upl
 ## Key Docs
 
 - Product and technical scope: `DesignDoc.md`
-- Reusable phase/build prompts: `VibeCodingPrompts.md`
 
 ## Current Persistence Model
 
