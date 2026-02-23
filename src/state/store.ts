@@ -30,7 +30,7 @@ const buildSeededElement = (): PlanElement => ({
   id: SEEDED_ELEMENT_ID,
   name: 'Shrub',
   shapeId: SHAPE_OPTIONS[0],
-  color: 'Green',
+  color: 'Pine',
   scale: 1,
 });
 

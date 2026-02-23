@@ -46,15 +46,15 @@ describe('landscaper store foundation', () => {
     }
 
     store.getState().updateElement(elementId, {
-      color: 'Brown',
+      color: 'Walnut',
       scale: 1.25,
     });
 
     const state = store.getState();
-    expect(state.plan.elements[0]?.color).toBe('Brown');
+    expect(state.plan.elements[0]?.color).toBe('Walnut');
     expect(state.plan.elements[0]?.scale).toBe(1.25);
     expect(state.history.past).toHaveLength(1);
-    expect(state.history.past[0]?.snapshot.plan.elements[0]?.color).toBe('Green');
+    expect(state.history.past[0]?.snapshot.plan.elements[0]?.color).toBe('Pine');
   });
 
   it('clears redo history when a new mutation is applied', () => {
@@ -90,7 +90,7 @@ describe('landscaper store foundation', () => {
       id: 'element-bed',
       name: 'Flower Bed',
       shapeId: 'plant03_big_spiky',
-      color: 'Brown',
+      color: 'Walnut',
       scale: 1.1,
     });
 
@@ -105,7 +105,7 @@ describe('landscaper store foundation', () => {
       id: 'element-bed',
       name: 'Flower Bed',
       shapeId: 'plant03_big_spiky',
-      color: 'Brown',
+      color: 'Walnut',
       scale: 1.1,
     });
     store.getState().addStamp({
@@ -271,7 +271,7 @@ describe('landscaper store foundation', () => {
           id: 'element-loaded',
           name: 'Loaded Shrub',
           shapeId: 'plant07_round_shrub' as const,
-          color: 'Dark Green' as const,
+          color: 'Pine' as const,
           scale: 1.4,
         },
       ],

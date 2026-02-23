@@ -74,12 +74,28 @@ interface PlanNotice {
 }
 
 const colorToHex: Record<ElementColor, string> = {
-  Green: '#4c8a47',
-  'Dark Green': '#2f5f32',
-  Brown: '#7a5b3a',
-  Gray: '#6a6f73',
-  Blue: '#2f6f9f',
+  Green: '#148f1d',
+  Moss: '#4C7A5A',
+  Pine: '#2E4A3A',
+  Teal: '#2F4A52',
+  Azure: '#0a4283',
+  Seafoam: '#7FA7A2',
+  Sand: '#AFA487',
+  Walnut: '#6e4b36',
+  Coffee: '#4b392e',
+  Charcoal: '#1f2524',
+  'Olive Gray': '#6A7062',
+  Slate: '#5F6F73',
+  Lavender: '#7E6F98',
+  Wheat: '#D6C768',
+  Amber: '#e39b55',
+  Rose: '#D8A3B5',
+  Coral: '#d96a5f',
 };
+
+const DEFAULT_COLOR: ElementColor = 'Pine';
+const getColorHex = (color: ElementColor | null | undefined): string =>
+  colorToHex[color ?? DEFAULT_COLOR] ?? colorToHex[DEFAULT_COLOR];
 
 const createElementId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -104,7 +120,7 @@ const createDefaultElement = (elementCount: number): PlanElement => ({
   id: createElementId(),
   name: `Element ${elementCount + 1}`,
   shapeId: DEFAULT_SHAPE_ID,
-  color: 'Green',
+  color: DEFAULT_COLOR,
   scale: 1,
 });
 
@@ -286,12 +302,20 @@ function App() {
   const [savedPlans, setSavedPlans] = useState<SavedPlanSummary[]>([]);
   const [selectedSavedPlanId, setSelectedSavedPlanId] = useState<string | null>(null);
   const [, setShapeBitmapVersion] = useState(0);
+  const paletteSignature = Object.values(colorToHex).join('|');
 
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    SHAPE_BITMAP_CACHE.clear();
+    SHAPE_BITMAP_PENDING.clear();
+    supportsColorBlendMode = null;
+    setShapeBitmapVersion((version) => version + 1);
+  }, [paletteSignature]);
 
   const getTintedShapeAsset = useCallback((shapeId: ShapeId, color: string) => {
     const normalizedColor = color.toLowerCase();
@@ -330,7 +354,7 @@ function App() {
   useEffect(() => {
     const seen = new Set<string>();
     elements.forEach((element) => {
-      const color = colorToHex[element.color];
+      const color = getColorHex(element.color);
       const key = `${element.shapeId}::${color.toLowerCase()}`;
       if (seen.has(key)) {
         return;
@@ -1162,8 +1186,9 @@ function App() {
                                       stamp.id === selectedStampId;
                                   const isDragging =
                                       dragState?.stampId === stamp.id;
-                                  const stampShapeColor =
-                                      colorToHex[stampElementDefinition.color];
+                                  const stampShapeColor = getColorHex(
+                                      stampElementDefinition.color,
+                                  );
 
                                   return (
                                       <button
@@ -1398,7 +1423,7 @@ function App() {
                                   >
                                       {renderShape(
                                           element.shapeId,
-                                          colorToHex[element.color],
+                                          getColorHex(element.color),
                                           "element-shape",
                                       )}
                                   </span>
@@ -1445,7 +1470,7 @@ function App() {
                               >
                                   {renderShape(
                                       selectedElement.shapeId,
-                                      colorToHex[selectedElement.color],
+                                      getColorHex(selectedElement.color),
                                       "element-shape",
                                   )}
                               </span>
@@ -1458,28 +1483,52 @@ function App() {
                               </button>
                           </div>
 
-                          <label
-                              className="field-label"
-                              htmlFor="element-color-input"
+                          <span className="field-label">Color</span>
+                          <div
+                              className="color-swatch-grid"
+                              role="listbox"
+                              aria-label="Select a color"
                           >
-                              Color
-                          </label>
-                          <select
-                              id="element-color-input"
-                              value={selectedElement.color}
-                              onChange={(event) =>
-                                  updateElement(selectedElement.id, {
-                                      color: event.target
-                                          .value as PlanElement["color"],
-                                  })
-                              }
-                          >
-                              {COLOR_OPTIONS.map((colorOption) => (
-                                  <option key={colorOption} value={colorOption}>
-                                      {colorOption}
-                                  </option>
-                              ))}
-                          </select>
+                              {COLOR_OPTIONS.map((colorOption) => {
+                                  const swatchHex = getColorHex(colorOption);
+                                  const isSelected =
+                                      selectedElement.color === colorOption;
+
+                                  return (
+                                      <button
+                                          key={colorOption}
+                                          type="button"
+                                          className={
+                                              isSelected
+                                                  ? "color-swatch-button selected"
+                                                  : "color-swatch-button"
+                                          }
+                                          style={
+                                              {
+                                                  "--swatch-color": swatchHex,
+                                              } as CSSProperties
+                                          }
+                                          onClick={() =>
+                                              updateElement(
+                                                  selectedElement.id,
+                                                  {
+                                                      color: colorOption,
+                                                  },
+                                              )
+                                          }
+                                          aria-pressed={isSelected}
+                                      >
+                                          <span
+                                              className="color-swatch-chip"
+                                              aria-hidden="true"
+                                          />
+                                          <span className="color-swatch-label">
+                                              {colorOption}
+                                          </span>
+                                      </button>
+                                  );
+                              })}
+                          </div>
 
                           <label
                               className="field-label"
@@ -1651,7 +1700,7 @@ function App() {
                               >
                                   {renderShape(
                                       shapeOption,
-                                      colorToHex[selectedElement.color],
+                                      getColorHex(selectedElement.color),
                                       "shape-option-preview",
                                   )}
                               </button>

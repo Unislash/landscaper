@@ -7,7 +7,7 @@ import {
   setActivePersistedPlan,
   upsertPersistedPlan,
 } from './planPersistence';
-import type { Plan } from './state/types';
+import { LOCAL_STORAGE_KEY, type Plan } from './state/types';
 
 class MemoryStorage {
   private readonly data = new Map<string, string>();
@@ -51,7 +51,7 @@ describe('plan persistence', () => {
       plans: [],
     });
 
-    storage.setItem('landscaper.plans.v1', 'not-json');
+    storage.setItem(LOCAL_STORAGE_KEY, 'not-json');
     expect(readPersistedPlans(storage)).toMatchObject({
       activePlanId: null,
       plans: [],

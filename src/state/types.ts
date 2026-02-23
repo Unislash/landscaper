@@ -1,4 +1,4 @@
-export const LOCAL_STORAGE_KEY = 'landscaper.plans.v1';
+export const LOCAL_STORAGE_KEY = 'landscaper.plans.v2';
 export const HISTORY_LIMIT = 100;
 export const MAX_BACKGROUND_IMAGE_BYTES = 9 * 1024 * 1024;
 
@@ -27,7 +27,25 @@ export const SHAPE_OPTIONS = [
 ] as const;
 export type ShapeId = (typeof SHAPE_OPTIONS)[number];
 
-export const COLOR_OPTIONS = ['Green', 'Dark Green', 'Brown', 'Gray', 'Blue'] as const;
+export const COLOR_OPTIONS = [
+  'Green',
+  'Moss',
+  'Pine',
+  'Teal',
+  'Azure',
+  'Seafoam',
+  'Sand',
+  'Walnut',
+  'Coffee',
+  'Charcoal',
+  'Slate',
+  'Olive Gray',
+  'Lavender',
+  'Rose',
+  'Amber',
+  'Coral',
+  'Wheat',
+] as const;
 export type ElementColor = (typeof COLOR_OPTIONS)[number];
 
 export type ToolMode = 'select' | 'stamp';
