@@ -28,6 +28,6 @@ export default defineConfig({
     filename: {
       js: '[name].js',
     },
-    assetPrefix: '/xenogene-weaver/',
+    assetPrefix: '/landscaper/',
   },
 });
