@@ -19,12 +19,12 @@ describe('landscaper store foundation', () => {
       expect.objectContaining({
         id: SEEDED_ELEMENT_ID,
         name: 'Shrub',
-        shapeId: 'shrub',
+        shapeId: 'plant01_big_leaf_dark',
       }),
     ]);
     expect(state.ui.selection.selectedStampId).toBeNull();
     expect(state.ui.selectedElementId).toBe(SEEDED_ELEMENT_ID);
-    expect(state.ui.activeTool).toBe('select');
+    expect(state.ui.activeTool).toBe('stamp');
     expect(state.history.past).toHaveLength(0);
     expect(state.history.future).toHaveLength(0);
   });
@@ -89,7 +89,7 @@ describe('landscaper store foundation', () => {
     store.getState().addElement({
       id: 'element-bed',
       name: 'Flower Bed',
-      shapeId: 'square',
+      shapeId: 'plant03_big_spiky',
       color: 'Brown',
       scale: 1.1,
     });
@@ -104,7 +104,7 @@ describe('landscaper store foundation', () => {
     store.getState().addElement({
       id: 'element-bed',
       name: 'Flower Bed',
-      shapeId: 'square',
+      shapeId: 'plant03_big_spiky',
       color: 'Brown',
       scale: 1.1,
     });
@@ -254,7 +254,7 @@ describe('landscaper store foundation', () => {
     expect(state.plan.name).toBe('Fresh Plan');
     expect(state.plan.stamps).toHaveLength(0);
     expect(state.plan.elements).toHaveLength(1);
-    expect(state.ui.activeTool).toBe('select');
+    expect(state.ui.activeTool).toBe('stamp');
     expect(state.ui.selection.selectedStampId).toBeNull();
     expect(state.history.past).toHaveLength(0);
     expect(state.history.future).toHaveLength(0);
@@ -270,7 +270,7 @@ describe('landscaper store foundation', () => {
         {
           id: 'element-loaded',
           name: 'Loaded Shrub',
-          shapeId: 'shrub' as const,
+          shapeId: 'plant07_round_shrub' as const,
           color: 'Dark Green' as const,
           scale: 1.4,
         },

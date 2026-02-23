@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-140 -140 280 280">
+  <defs>
+    <filter id="b" width="170%" height="170%" x="-35%" y="-35%">
+      <feTurbulence baseFrequency=".018" numOctaves="3" result="noise" seed="11" type="fractalNoise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="18" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="c" width="170%" height="170%" x="-35%" y="-35%">
+      <feTurbulence baseFrequency=".022" numOctaves="3" result="noise" seed="22" type="fractalNoise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="14" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="a" width="190%" height="190%" x="-45%" y="-45%">
+      <feGaussianBlur result="b" stdDeviation="6"/>
+      <feComponentTransfer>
+        <feFuncA exponent="1.25" type="gamma"/>
+      </feComponentTransfer>
+    </filter>
+    <g id="d">
+      <path d="M0 0v-92M0 0l21.74-81.138M0 0l48-83.138M0 0l57.983-57.983M0 0l84.87-49M0 0l83.07-22.258M0 0h94M0 0l83.07 22.258M0 0l84.87 49M0 0l57.983 57.983M0 0l48 83.138M0 0l21.74 81.138M0 0v92M0 0l-21.74 81.138M0 0l-48 83.138M0 0l-57.983 57.983M0 0l-84.87 49M0 0l-83.07 22.258M0 0h-94M0 0l-83.07-22.258M0 0l-84.87-49M0 0l-57.983-57.983M0 0l-48-83.138M0 0l-21.74-81.138"/>
+    </g>
+    <g id="e">
+      <path d="M0-104v-18M39.8-96.083l6.122-14.783M73.54-73.54l13.434-13.434M96.083-39.8l13.859-5.74M104 0h20M96.083 39.8l14.783 6.122M73.54 73.54l13.434 13.434M39.8 96.083l5.74 13.859M0 104v18M-39.8 96.083l-6.122 14.783M-73.54 73.54l-13.434 13.434M-96.083 39.8l-13.859 5.74M-104 0h-20M-96.083-39.8l-14.783-6.122M-73.54-73.54l-13.434-13.434M-39.8-96.083l-5.74-13.859"/>
+    </g>
+    <g id="f" fill="none" stroke="#0b0f0a">
+      <path stroke-opacity=".55" stroke-width="2.2" d="M-18-6c10-12 28-6 34 6 4 14-14 22-26 14S-26-2-18-6Z"/>
+      <path stroke-opacity=".35" stroke-width="1.6" d="M-10 2c8-12 20-6 20 4s-14 10-22 4"/>
+    </g>
+  </defs>
+  <g filter="url(#a)" opacity=".55">
+    <circle r="114" fill="#6f8f3f" class="recolor-fill"/>
+  </g>
+  <circle r="108" fill="#4c7f31" class="recolor-fill" filter="url(#b)"/>
+  <circle r="98" fill="#77b04f" class="recolor-fill" filter="url(#c)" opacity=".45"/>
+  <circle r="110" fill="none" stroke="#0b0f0a" stroke-opacity=".75" stroke-width="3" filter="url(#c)"/>
+  <use stroke="#0b0f0a" stroke-linecap="round" stroke-opacity=".55" stroke-width="2" href="#d"/>
+  <use stroke="#0b0f0a" stroke-linecap="round" stroke-opacity=".6" stroke-width="2" href="#e"/>
+  <use href="#f"/>
+</svg>

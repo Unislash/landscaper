@@ -29,7 +29,7 @@ const createPlanFixture = (id: string, name: string): Plan => ({
     {
       id: `element-${id}`,
       name: 'Shrub',
-      shapeId: 'shrub',
+      shapeId: 'plant07_round_shrub',
       color: 'Green',
       scale: 1,
     },

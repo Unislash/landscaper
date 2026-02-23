@@ -216,8 +216,60 @@ body {
   pointer-events: none;
 }
 
-.stamp-shape {
+.shape-asset {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  color: var(--shape-color, #4c8a47);
+  isolation: isolate;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.shape-asset .shape-svg {
+  width: 100%;
+  height: 100%;
   display: block;
+}
+
+.shape-asset svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.shape-asset .shape-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.shape-asset .shape-tint {
+  position: absolute;
+  inset: 0;
+  background: var(--shape-color, #4c8a47);
+  mix-blend-mode: color;
+  opacity: var(--shape-tint-strength, 1);
+  pointer-events: none;
+  -webkit-mask-image: var(--shape-mask);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-image: var(--shape-mask);
+  mask-mode: alpha;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+
+.stamp-shape {
+  width: 100%;
+  height: 100%;
+}
+
+.element-preview .shape-asset {
   width: 100%;
   height: 100%;
 }
@@ -260,6 +312,11 @@ body {
   display: grid;
   gap: 16px;
   align-content: start;
+  max-height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  min-height: 0;
 }
 
 .region-title {
@@ -552,7 +609,54 @@ body {
   gap: 12px;
 }
 
-.shape-modal h2 {
+.load-plan-modal {
+  width: min(520px, 100%);
+  border-radius: 14px;
+  padding: 16px;
+  border: 1px solid #8ba085;
+  background: #f7fbf6;
+  display: grid;
+  gap: 12px;
+}
+
+.saved-plan-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(320px, 60vh);
+  overflow-y: auto;
+}
+
+.saved-plan-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+}
+
+.saved-plan-button.selected {
+  background: #dcebd8;
+  border-color: #60885b;
+  font-weight: 600;
+}
+
+.saved-plan-name {
+  font-size: 0.9rem;
+}
+
+.saved-plan-meta {
+  font-size: 0.75rem;
+  color: #4d6150;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.shape-modal h2,
+.load-plan-modal h2 {
   margin: 0;
   font-size: 1rem;
 }
@@ -564,7 +668,19 @@ body {
 }
 
 .shape-option {
-  text-transform: capitalize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px;
+  min-height: 96px;
+  text-transform: none;
+}
+
+.shape-option .shape-asset,
+.shape-option-preview {
+  width: 72px;
+  height: 72px;
 }
 
 .active-shape {

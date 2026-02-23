@@ -13,9 +13,12 @@ import {
 import { BACKGROUND_IMAGE_MAX_MB, readFileAsDataUrl, validateBackgroundFile } from './backgroundUpload';
 import {
   getPersistedPlanById,
+  listSavedPlanSummaries,
   readPersistedPlans,
   upsertPersistedPlan,
+  type SavedPlanSummary,
 } from './planPersistence';
+import { SHAPE_SVGS } from './resources/shapeAssets';
 import { useLandscaperStore } from './state/store';
 import {
   COLOR_OPTIONS,
@@ -86,15 +89,50 @@ const createElementId = (): string => {
   return `element-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 };
 
+const DEFAULT_SHAPE_ID = SHAPE_OPTIONS[0];
+
+const SHAPE_RENDER_INFO: Partial<
+  Record<ShapeId, { maskSource: string; isInline: boolean; viewBox?: { width: number; height: number } | null }>
+> = {};
+
+const SHAPE_BITMAP_SIZE = 256;
+const SHAPE_BITMAP_CACHE = new Map<string, string>();
+const SHAPE_BITMAP_PENDING = new Set<string>();
+let supportsColorBlendMode: boolean | null = null;
+
 const createDefaultElement = (elementCount: number): PlanElement => ({
   id: createElementId(),
   name: `Element ${elementCount + 1}`,
-  shapeId: 'circle',
+  shapeId: DEFAULT_SHAPE_ID,
   color: 'Green',
   scale: 1,
 });
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+const truncateToDecimals = (value: number, decimals = 2): number => {
+  const factor = 10 ** decimals;
+  return Math.trunc(value * factor) / factor;
+};
+
+const formatScaleDisplay = (value: number): string => {
+  const truncated = truncateToDecimals(value, 2);
+  return truncated.toFixed(2).replace(/\.?0+$/, '');
+};
+
+const parseViewBox = (svgMarkup: string): { width: number; height: number } | null => {
+  const match = svgMarkup.match(/viewBox="([^"]+)"/i);
+  if (!match) {
+    return null;
+  }
+
+  const parts = match[1].trim().split(/[\s,]+/).map(Number);
+  if (parts.length !== 4 || parts.some((value) => Number.isNaN(value))) {
+    return null;
+  }
+
+  return { width: parts[2], height: parts[3] };
+};
 
 const isEditableTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
@@ -110,27 +148,90 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
   );
 };
 
-const renderShape = (shapeId: ShapeId, color: string) => {
-  switch (shapeId) {
-    case 'circle':
-      return <circle cx="50" cy="50" r="32" fill={color} stroke="#1f3d22" strokeWidth="3" />;
-    case 'square':
-      return (
-        <rect x="18" y="18" width="64" height="64" rx="8" fill={color} stroke="#1f3d22" strokeWidth="3" />
-      );
-    case 'triangle':
-      return <polygon points="50,14 86,82 14,82" fill={color} stroke="#1f3d22" strokeWidth="3" />;
-    case 'shrub':
-      return (
-        <>
-          <circle cx="35" cy="56" r="22" fill={color} stroke="#1f3d22" strokeWidth="2.5" />
-          <circle cx="65" cy="56" r="22" fill={color} stroke="#1f3d22" strokeWidth="2.5" />
-          <circle cx="50" cy="36" r="22" fill={color} stroke="#1f3d22" strokeWidth="2.5" />
-        </>
-      );
-    default:
-      return null;
+const getShapeRenderInfo = (shapeId: ShapeId, svgMarkup: string) => {
+  const cached = SHAPE_RENDER_INFO[shapeId];
+  if (cached) {
+    return cached;
   }
+
+  const trimmedMarkup = svgMarkup.trim();
+  const isInline = trimmedMarkup.startsWith('<svg') || trimmedMarkup.startsWith('<?xml');
+  const maskSource = isInline
+    ? `url("data:image/svg+xml;utf8,${encodeURIComponent(svgMarkup)}")`
+    : `url("${svgMarkup}")`;
+  const viewBox = isInline ? parseViewBox(svgMarkup) : null;
+
+  const info = { maskSource, isInline, viewBox };
+  SHAPE_RENDER_INFO[shapeId] = info;
+  return info;
+};
+
+const loadSvgImage = (svgMarkup: string, isInline: boolean): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.decoding = 'async';
+    image.crossOrigin = 'anonymous';
+
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Failed to load shape image'));
+
+    image.src = isInline
+      ? `data:image/svg+xml;utf8,${encodeURIComponent(svgMarkup)}`
+      : svgMarkup;
+  });
+
+const getBlendMode = (context: CanvasRenderingContext2D): GlobalCompositeOperation => {
+  if (supportsColorBlendMode !== null) {
+    return supportsColorBlendMode ? 'color' : 'multiply';
+  }
+
+  const previous = context.globalCompositeOperation;
+  context.globalCompositeOperation = 'color';
+  supportsColorBlendMode = context.globalCompositeOperation === 'color';
+  context.globalCompositeOperation = previous;
+  return supportsColorBlendMode ? 'color' : 'multiply';
+};
+
+const createTintedShapeBitmap = async (shapeId: ShapeId, color: string): Promise<string | null> => {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const resolvedShapeId = SHAPE_SVGS[shapeId] ? shapeId : DEFAULT_SHAPE_ID;
+  const svgMarkup = SHAPE_SVGS[resolvedShapeId];
+  if (!svgMarkup) {
+    return null;
+  }
+
+  const { isInline, viewBox } = getShapeRenderInfo(resolvedShapeId, svgMarkup);
+  const image = await loadSvgImage(svgMarkup, isInline);
+  const canvas = document.createElement('canvas');
+  canvas.width = SHAPE_BITMAP_SIZE;
+  canvas.height = SHAPE_BITMAP_SIZE;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return null;
+  }
+
+  const sourceWidth = viewBox?.width ?? image.naturalWidth ?? image.width ?? SHAPE_BITMAP_SIZE;
+  const sourceHeight = viewBox?.height ?? image.naturalHeight ?? image.height ?? SHAPE_BITMAP_SIZE;
+  const scale = Math.min(SHAPE_BITMAP_SIZE / sourceWidth, SHAPE_BITMAP_SIZE / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  const offsetX = (SHAPE_BITMAP_SIZE - drawWidth) / 2;
+  const offsetY = (SHAPE_BITMAP_SIZE - drawHeight) / 2;
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+  context.globalCompositeOperation = getBlendMode(context);
+  context.fillStyle = color;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.globalCompositeOperation = 'destination-in';
+  context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+  context.globalCompositeOperation = 'source-over';
+
+  return canvas.toDataURL('image/png');
 };
 
 function App() {
@@ -139,6 +240,7 @@ function App() {
   const zoomTimeoutRef = useRef<number | null>(null);
   const previousToolRef = useRef<ToolMode | null>(null);
   const shiftSelectActiveRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   const plan = useLandscaperStore((state) => state.plan);
   const planName = useLandscaperStore((state) => state.plan.name);
@@ -180,6 +282,101 @@ function App() {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
+  const [isLoadPlanOpen, setIsLoadPlanOpen] = useState(false);
+  const [savedPlans, setSavedPlans] = useState<SavedPlanSummary[]>([]);
+  const [selectedSavedPlanId, setSelectedSavedPlanId] = useState<string | null>(null);
+  const [, setShapeBitmapVersion] = useState(0);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const getTintedShapeAsset = useCallback((shapeId: ShapeId, color: string) => {
+    const normalizedColor = color.toLowerCase();
+    const key = `${shapeId}::${normalizedColor}`;
+    const cached = SHAPE_BITMAP_CACHE.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    if (typeof document === 'undefined') {
+      return null;
+    }
+
+    if (!SHAPE_BITMAP_PENDING.has(key)) {
+      SHAPE_BITMAP_PENDING.add(key);
+      window.setTimeout(() => {
+        void createTintedShapeBitmap(shapeId, color)
+          .then((dataUrl) => {
+            if (dataUrl) {
+              SHAPE_BITMAP_CACHE.set(key, dataUrl);
+            }
+          })
+          .catch(() => null)
+          .finally(() => {
+            SHAPE_BITMAP_PENDING.delete(key);
+            if (isMountedRef.current) {
+              setShapeBitmapVersion((version) => version + 1);
+            }
+          });
+      }, 0);
+    }
+
+    return null;
+  }, []);
+
+  useEffect(() => {
+    const seen = new Set<string>();
+    elements.forEach((element) => {
+      const color = colorToHex[element.color];
+      const key = `${element.shapeId}::${color.toLowerCase()}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      getTintedShapeAsset(element.shapeId, color);
+    });
+  }, [elements, getTintedShapeAsset]);
+
+  const renderShape = useCallback(
+    (shapeId: ShapeId, color: string, className?: string) => {
+      const resolvedShapeId = SHAPE_SVGS[shapeId] ? shapeId : DEFAULT_SHAPE_ID;
+      const svgMarkup = SHAPE_SVGS[resolvedShapeId];
+      if (!svgMarkup) {
+        return null;
+      }
+
+      const wrapperClass = className ? `shape-asset ${className}` : 'shape-asset';
+      const tintedSource = getTintedShapeAsset(resolvedShapeId, color);
+
+      if (tintedSource) {
+        return (
+          <span className={wrapperClass}>
+            <img className="shape-img" src={tintedSource} alt="" draggable={false} />
+          </span>
+        );
+      }
+
+      const { maskSource, isInline } = getShapeRenderInfo(resolvedShapeId, svgMarkup);
+
+      return (
+        <span
+          className={wrapperClass}
+          style={{ '--shape-color': color, '--shape-mask': maskSource } as CSSProperties}
+        >
+          {isInline ? (
+            <span className="shape-svg" dangerouslySetInnerHTML={{ __html: svgMarkup }} />
+          ) : (
+            <img className="shape-img" src={svgMarkup} alt="" draggable={false} />
+          )}
+          <span className="shape-tint" aria-hidden="true" />
+        </span>
+      );
+    },
+    [getTintedShapeAsset],
+  );
 
   const elementsById = useMemo(
     () => new Map(elements.map((element) => [element.id, element])),
@@ -530,18 +727,35 @@ function App() {
     });
   };
 
-  const handleLoadPlan = () => {
+  const openLoadPlanModal = () => {
     const persistedPlans = readPersistedPlans();
-    const activePlanId = persistedPlans.activePlanId ?? persistedPlans.plans[0]?.plan.id ?? null;
-    if (!activePlanId) {
+    const summaries = listSavedPlanSummaries(persistedPlans);
+    const activePlanId =
+      persistedPlans.activePlanId ?? summaries[0]?.id ?? null;
+
+    setSavedPlans(summaries);
+    setSelectedSavedPlanId(activePlanId);
+    setIsLoadPlanOpen(true);
+  };
+
+  const formatSavedTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.valueOf())) {
+      return timestamp;
+    }
+    return date.toLocaleString();
+  };
+
+  const handleLoadPlan = () => {
+    if (!selectedSavedPlanId) {
       setPlanNotice({
         variant: 'error',
-        message: 'No saved plan found to load.',
+        message: 'Select a saved plan to load.',
       });
       return;
     }
 
-    const loadedPlan = getPersistedPlanById(activePlanId);
+    const loadedPlan = getPersistedPlanById(selectedSavedPlanId);
     if (!loadedPlan) {
       setPlanNotice({
         variant: 'error',
@@ -551,10 +765,19 @@ function App() {
     }
 
     loadPlan(loadedPlan);
+    setIsLoadPlanOpen(false);
     setPlanNotice({
       variant: 'success',
       message: `Loaded "${loadedPlan.name}".`,
     });
+  };
+
+  const handleCloseLoadPlan = () => {
+    setIsLoadPlanOpen(false);
+  };
+
+  const handleLoadButtonClick = () => {
+    openLoadPlanModal();
   };
 
   const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -973,16 +1196,11 @@ function App() {
                                           }
                                           aria-label={`Stamp ${stampElementDefinition.name}`}
                                       >
-                                          <svg
-                                              className="stamp-shape"
-                                              viewBox="0 0 100 100"
-                                              preserveAspectRatio="xMidYMid meet"
-                                          >
-                                              {renderShape(
-                                                  stampElementDefinition.shapeId,
-                                                  stampShapeColor,
-                                              )}
-                                          </svg>
+                                      {renderShape(
+                                          stampElementDefinition.shapeId,
+                                          stampShapeColor,
+                                          "stamp-shape",
+                                      )}
                                           {isSelected && resizeMode ? (
                                               <div className="resize-handle-layer">
                                                   {(
@@ -1144,7 +1362,7 @@ function App() {
                       <button
                           type="button"
                           className="tool-button panel-action"
-                          onClick={handleLoadPlan}
+                          onClick={handleLoadButtonClick}
                       >
                           Load Plan
                       </button>
@@ -1178,15 +1396,11 @@ function App() {
                                       className="element-preview"
                                       aria-hidden="true"
                                   >
-                                      <svg
-                                          viewBox="0 0 100 100"
-                                          preserveAspectRatio="xMidYMid meet"
-                                      >
-                                          {renderShape(
-                                              element.shapeId,
-                                              colorToHex[element.color]
-                                          )}
-                                      </svg>
+                                      {renderShape(
+                                          element.shapeId,
+                                          colorToHex[element.color],
+                                          "element-shape",
+                                      )}
                                   </span>
                                   <span className="element-list-text">
                                       <span className="element-name">
@@ -1194,7 +1408,7 @@ function App() {
                                       </span>
                                       <span className="element-meta">
                                           {element.shapeId} - {element.color} -
-                                          scale {element.scale.toFixed(2)}
+                                          scale {formatScaleDisplay(element.scale)}
                                       </span>
                                   </span>
                               </button>
@@ -1229,15 +1443,11 @@ function App() {
                                   className="element-preview"
                                   aria-hidden="true"
                               >
-                                  <svg
-                                      viewBox="0 0 100 100"
-                                      preserveAspectRatio="xMidYMid meet"
-                                  >
-                                      {renderShape(
-                                          selectedElement.shapeId,
-                                          colorToHex[selectedElement.color]
-                                      )}
-                                  </svg>
+                                  {renderShape(
+                                      selectedElement.shapeId,
+                                      colorToHex[selectedElement.color],
+                                      "element-shape",
+                                  )}
                               </span>
                               <button
                                   type="button"
@@ -1282,7 +1492,7 @@ function App() {
                               type="number"
                               min={0.1}
                               step={0.1}
-                              value={selectedElement.scale}
+                              value={formatScaleDisplay(selectedElement.scale)}
                               onChange={(event) => {
                                   const nextScale = Number(event.target.value);
                                   if (
@@ -1290,7 +1500,7 @@ function App() {
                                       nextScale > 0
                                   ) {
                                       updateElement(selectedElement.id, {
-                                          scale: nextScale,
+                                          scale: truncateToDecimals(nextScale, 2),
                                       });
                                   }
                               }}
@@ -1333,6 +1543,79 @@ function App() {
               </div>
           ) : null}
 
+          {isLoadPlanOpen ? (
+              <div
+                  className="modal-backdrop"
+                  role="presentation"
+                  onClick={handleCloseLoadPlan}
+              >
+                  <div
+                      className="load-plan-modal"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label="Load a saved plan"
+                      onClick={(event) => event.stopPropagation()}
+                  >
+                      <h2>Load a plan</h2>
+                      {savedPlans.length ? (
+                          <div className="saved-plan-list" role="listbox">
+                              {savedPlans.map((planSummary) => (
+                                  <button
+                                      key={planSummary.id}
+                                      type="button"
+                                      className={
+                                          planSummary.id ===
+                                          selectedSavedPlanId
+                                              ? "tool-button saved-plan-button selected"
+                                              : "tool-button saved-plan-button"
+                                      }
+                                      onClick={() =>
+                                          setSelectedSavedPlanId(
+                                              planSummary.id,
+                                          )
+                                      }
+                                      aria-pressed={
+                                          planSummary.id ===
+                                          selectedSavedPlanId
+                                      }
+                                  >
+                                      <span className="saved-plan-name">
+                                          {planSummary.name}
+                                      </span>
+                                      <span className="saved-plan-meta">
+                                          {formatSavedTimestamp(
+                                              planSummary.savedAt,
+                                          )}
+                                      </span>
+                                  </button>
+                              ))}
+                          </div>
+                      ) : (
+                          <p className="panel-note">
+                              No saved plans found yet.
+                          </p>
+                      )}
+                      <div className="modal-actions">
+                          <button
+                              type="button"
+                              className="tool-button panel-action"
+                              onClick={handleLoadPlan}
+                              disabled={!selectedSavedPlanId}
+                          >
+                              Load Selected
+                          </button>
+                          <button
+                              type="button"
+                              className="tool-button panel-action"
+                              onClick={handleCloseLoadPlan}
+                          >
+                              Cancel
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          ) : null}
+
           {isShapePickerOpen && selectedElement ? (
               <div
                   className="modal-backdrop"
@@ -1357,6 +1640,8 @@ function App() {
                                           ? "tool-button shape-option active-shape"
                                           : "tool-button shape-option"
                                   }
+                                  aria-label={shapeOption}
+                                  title={shapeOption}
                                   onClick={() => {
                                       updateElement(selectedElement.id, {
                                           shapeId: shapeOption,
@@ -1364,7 +1649,11 @@ function App() {
                                       setIsShapePickerOpen(false);
                                   }}
                               >
-                                  {shapeOption}
+                                  {renderShape(
+                                      shapeOption,
+                                      colorToHex[selectedElement.color],
+                                      "shape-option-preview",
+                                  )}
                               </button>
                           ))}
                       </div>

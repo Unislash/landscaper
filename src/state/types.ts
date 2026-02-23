@@ -2,7 +2,22 @@ export const LOCAL_STORAGE_KEY = 'landscaper.plans.v1';
 export const HISTORY_LIMIT = 100;
 export const MAX_BACKGROUND_IMAGE_BYTES = 9 * 1024 * 1024;
 
-export const SHAPE_OPTIONS = ['circle', 'square', 'triangle', 'shrub'] as const;
+export const SHAPE_OPTIONS = [
+  'plant01_big_leaf_dark',
+  'plant02_big_leaf_soft',
+  'plant03_big_spiky',
+  'plant04_med_spiky',
+  'plant05_tuft_dark',
+  'plant06_tuft_olive',
+  'plant07_round_shrub',
+  'plant08_round_shrub_small',
+  'plant09_leafy_gray',
+  'plant10_leafy_gray_alt',
+  'plant11_bright_radial',
+  'plant12_bright_radial_dense',
+  'plant13_lime_leafy',
+  'plant14_lime_leafy_alt',
+] as const;
 export type ShapeId = (typeof SHAPE_OPTIONS)[number];
 
 export const COLOR_OPTIONS = ['Green', 'Dark Green', 'Brown', 'Gray', 'Blue'] as const;

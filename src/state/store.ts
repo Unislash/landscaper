@@ -4,6 +4,7 @@ import { createStore, type StateCreator } from 'zustand/vanilla';
 
 import {
   HISTORY_LIMIT,
+  SHAPE_OPTIONS,
   type HistoryEntry,
   type HistorySnapshot,
   type LandscaperState,
@@ -28,7 +29,7 @@ const createPlanId = (() => {
 const buildSeededElement = (): PlanElement => ({
   id: SEEDED_ELEMENT_ID,
   name: 'Shrub',
-  shapeId: 'shrub',
+  shapeId: SHAPE_OPTIONS[0],
   color: 'Green',
   scale: 1,
 });
