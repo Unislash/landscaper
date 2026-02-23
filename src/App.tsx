@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ChangeEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
@@ -12,10 +13,7 @@ import {
 import { BACKGROUND_IMAGE_MAX_MB, readFileAsDataUrl, validateBackgroundFile } from './backgroundUpload';
 import {
   getPersistedPlanById,
-  listSavedPlanSummaries,
   readPersistedPlans,
-  setActivePersistedPlan,
-  type SavedPlanSummary,
   upsertPersistedPlan,
 } from './planPersistence';
 import { useLandscaperStore } from './state/store';
@@ -97,20 +95,6 @@ const createDefaultElement = (elementCount: number): PlanElement => ({
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
-const formatSavedTimestamp = (value: string): string => {
-  const parsedValue = Date.parse(value);
-  if (Number.isNaN(parsedValue)) {
-    return 'Saved';
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(parsedValue);
-};
-
 const isEditableTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -150,6 +134,8 @@ const renderShape = (shapeId: ShapeId, color: string) => {
 
 function App() {
   const canvasSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const saveTimeoutRef = useRef<number | null>(null);
+  const zoomTimeoutRef = useRef<number | null>(null);
 
   const plan = useLandscaperStore((state) => state.plan);
   const planName = useLandscaperStore((state) => state.plan.name);
@@ -179,13 +165,14 @@ function App() {
   const sendStampToBack = useLandscaperStore((state) => state.sendStampToBack);
   const undo = useLandscaperStore((state) => state.undo);
   const redo = useLandscaperStore((state) => state.redo);
-  const historyCount = useLandscaperStore((state) => state.history.past.length);
-  const futureHistoryCount = useLandscaperStore((state) => state.history.future.length);
+  const canUndo = useLandscaperStore((state) => state.history.past.length > 0);
+  const canRedo = useLandscaperStore((state) => state.history.future.length > 0);
   const [backgroundUploadError, setBackgroundUploadError] = useState<string | null>(null);
   const [isShapePickerOpen, setIsShapePickerOpen] = useState(false);
-  const [savedPlanSummaries, setSavedPlanSummaries] = useState<SavedPlanSummary[]>([]);
-  const [selectedSavedPlanId, setSelectedSavedPlanId] = useState<string>('');
   const [planNotice, setPlanNotice] = useState<PlanNotice | null>(null);
+  const [isPlanSaving, setIsPlanSaving] = useState(false);
+  const [isZoomIndicatorVisible, setIsZoomIndicatorVisible] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
@@ -207,9 +194,6 @@ function App() {
     () => stamps.find((stamp) => stamp.id === selectedStampId) ?? null,
     [selectedStampId, stamps],
   );
-  const canUndo = historyCount > 0;
-  const canRedo = futureHistoryCount > 0;
-
   const viewportTransformStyle = useMemo(
     () => ({
       transform: `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.zoom})`,
@@ -314,23 +298,16 @@ function App() {
 
   useEffect(() => {
     const persistedPlans = readPersistedPlans();
-    const summaries = listSavedPlanSummaries(persistedPlans);
-    setSavedPlanSummaries(summaries);
+    const activePlanId = persistedPlans.activePlanId ?? persistedPlans.plans[0]?.plan.id ?? null;
 
-    const activePlanId = persistedPlans.activePlanId ?? summaries[0]?.id ?? '';
-    if (!activePlanId) {
-      setSelectedSavedPlanId('');
-      return;
+    if (activePlanId) {
+      const persistedPlan = persistedPlans.plans.find((entry) => entry.plan.id === activePlanId)?.plan;
+      if (persistedPlan) {
+        loadPlan(persistedPlan);
+      }
     }
 
-    const persistedPlan = persistedPlans.plans.find((entry) => entry.plan.id === activePlanId)?.plan;
-    if (!persistedPlan) {
-      setSelectedSavedPlanId('');
-      return;
-    }
-
-    loadPlan(persistedPlan);
-    setSelectedSavedPlanId(activePlanId);
+    setIsHydrated(true);
   }, [loadPlan]);
 
   useEffect(() => {
@@ -346,6 +323,43 @@ function App() {
       window.clearTimeout(timeoutId);
     };
   }, [planNotice]);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    setIsPlanSaving(true);
+    const persistedPlans = upsertPersistedPlan(plan);
+    if (!persistedPlans) {
+      setPlanNotice({
+        variant: 'error',
+        message: 'Unable to save plan in local storage.',
+      });
+    }
+
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = window.setTimeout(() => {
+      setIsPlanSaving(false);
+    }, 650);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        window.clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [isHydrated, plan]);
+
+  useEffect(() => {
+    return () => {
+      if (zoomTimeoutRef.current) {
+        window.clearTimeout(zoomTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleBackgroundFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
@@ -386,51 +400,33 @@ function App() {
 
   const handleCreateNewPlan = () => {
     createNewPlan('Untitled Plan');
-    setSelectedSavedPlanId('');
     setPlanNotice({
       variant: 'success',
-      message: 'Created a new plan. Save snapshot to store it locally.',
+      message: 'Created a new plan.',
     });
   };
 
-  const handleSavePlanSnapshot = () => {
-    const persistedPlans = upsertPersistedPlan(plan);
-    if (!persistedPlans) {
+  const handleLoadPlan = () => {
+    const persistedPlans = readPersistedPlans();
+    const activePlanId = persistedPlans.activePlanId ?? persistedPlans.plans[0]?.plan.id ?? null;
+    if (!activePlanId) {
       setPlanNotice({
         variant: 'error',
-        message: 'Unable to save plan in local storage.',
+        message: 'No saved plan found to load.',
       });
       return;
     }
 
-    const summaries = listSavedPlanSummaries(persistedPlans);
-    setSavedPlanSummaries(summaries);
-    setSelectedSavedPlanId(plan.id);
-    setPlanNotice({
-      variant: 'success',
-      message: `Saved "${plan.name || 'Untitled Plan'}" locally.`,
-    });
-  };
-
-  const handleLoadSelectedPlan = () => {
-    if (!selectedSavedPlanId) {
-      return;
-    }
-
-    const loadedPlan = getPersistedPlanById(selectedSavedPlanId);
+    const loadedPlan = getPersistedPlanById(activePlanId);
     if (!loadedPlan) {
       setPlanNotice({
         variant: 'error',
-        message: 'Selected plan was not found in local storage.',
+        message: 'Saved plan was not found in local storage.',
       });
       return;
     }
 
     loadPlan(loadedPlan);
-    const persistedPlans = setActivePersistedPlan(selectedSavedPlanId);
-    if (persistedPlans) {
-      setSavedPlanSummaries(listSavedPlanSummaries(persistedPlans));
-    }
     setPlanNotice({
       variant: 'success',
       message: `Loaded "${loadedPlan.name}".`,
@@ -483,6 +479,14 @@ function App() {
     setViewport({
       zoom: Number(nextZoom.toFixed(3)),
     });
+
+    setIsZoomIndicatorVisible(true);
+    if (zoomTimeoutRef.current) {
+      window.clearTimeout(zoomTimeoutRef.current);
+    }
+    zoomTimeoutRef.current = window.setTimeout(() => {
+      setIsZoomIndicatorVisible(false);
+    }, 5000);
   };
 
   const handleStampPointerDown = (
@@ -666,404 +670,537 @@ function App() {
         : selectedStampElement.scale
       : null;
   const selectedStampSize = selectedStampScale ? selectedStampScale * STAMP_BASE_SIZE : null;
+  const backgroundUploadLabel = backgroundImage ? 'Choose new background image' : 'Upload background image';
 
   return (
-    <div className="app-shell">
-      <aside className="left-toolbar" aria-label="Editor tools">
-        <h2 className="region-title">Tools</h2>
-        <div className="toolbar-group">
-          {toolButtons.map((tool) => (
-            <button
-              key={tool.id}
-              type="button"
-              className={activeTool === tool.id ? 'tool-button active' : 'tool-button'}
-              onClick={() => setActiveTool(tool.id)}
-            >
-              {tool.label}
-            </button>
-          ))}
-        </div>
-        <div className="toolbar-group">
-          <button
-            type="button"
-            className="tool-button"
-            onClick={runUndo}
-            disabled={!canUndo}
-            title="Undo (Ctrl/Cmd+Z)"
-          >
-            Undo
-          </button>
-          <button
-            type="button"
-            className="tool-button"
-            onClick={runRedo}
-            disabled={!canRedo}
-            title="Redo (Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y)"
-          >
-            Redo
-          </button>
-        </div>
-        <div className="toolbar-group">
-          <button type="button" className="tool-button" onClick={handleBringToFront} disabled={!selectedStampId}>
-            Bring to Front
-          </button>
-          <button type="button" className="tool-button" onClick={handleSendToBack} disabled={!selectedStampId}>
-            Send to Back
-          </button>
-          <button type="button" className="tool-button" onClick={handleResizeAction} disabled={!selectedElement}>
-            Resize Element
-          </button>
-        </div>
-      </aside>
-
-      <main className="editor-area">
-        <section className="plan-name-panel" aria-label="Plan details">
-          <label htmlFor="plan-name-input">Plan name</label>
-          <input
-            id="plan-name-input"
-            name="plan-name"
-            value={planName}
-            onChange={(event) => setPlanName(event.target.value)}
-          />
-        </section>
-
-        <section className="canvas-region" aria-label="Canvas area">
-          <h1>Landscaper Canvas</h1>
-          <div
-            ref={canvasSurfaceRef}
-            className={activeTool === 'stamp' ? 'canvas-surface stamp-mode-surface' : 'canvas-surface'}
-            onPointerDown={handleCanvasPointerDown}
-            onWheel={handleCanvasWheel}
-          >
-            <div className="canvas-viewport" style={viewportTransformStyle}>
-              {backgroundImage ? (
-                <img src={backgroundImage} alt="Plan background" className="canvas-background-image" />
-              ) : (
-                <p className="canvas-empty-state">
-                  Upload a background image (under {BACKGROUND_IMAGE_MAX_MB}MB) to start your layout.
-                </p>
-              )}
-              <div className={activeTool === 'stamp' ? 'stamp-layer stamp-layer-disabled' : 'stamp-layer'}>
-                {sortedStamps.map((stamp) => {
-                  const stampElementDefinition = elementsById.get(stamp.elementId);
-                  if (!stampElementDefinition) {
-                    return null;
-                  }
-
-                  const previewPosition =
-                    dragPreview && dragPreview.stampId === stamp.id
-                      ? { x: dragPreview.x, y: dragPreview.y }
-                      : { x: stamp.x, y: stamp.y };
-                  const effectiveScale =
-                    resizeState && resizeState.elementId === stamp.elementId
-                      ? resizeState.previewScale
-                      : stampElementDefinition.scale;
-                  const stampSize = effectiveScale * STAMP_BASE_SIZE;
-                  const isSelected = stamp.id === selectedStampId;
-                  const isDragging = dragState?.stampId === stamp.id;
-                  const stampShapeColor = colorToHex[stampElementDefinition.color];
-
-                  return (
-                    <button
-                      key={stamp.id}
-                      type="button"
-                      className={
-                        isSelected
-                          ? isDragging
-                            ? 'stamp-item selected dragging'
-                            : 'stamp-item selected'
-                          : 'stamp-item'
-                      }
-                      style={{
-                        width: `${stampSize}px`,
-                        height: `${stampSize}px`,
-                        left: `${previewPosition.x - stampSize / 2}px`,
-                        top: `${previewPosition.y - stampSize / 2}px`,
-                        zIndex: stamp.zIndex + 100,
-                      }}
-                      onPointerDown={(event) => handleStampPointerDown(event, stamp)}
-                      aria-label={`Stamp ${stampElementDefinition.name}`}
-                    >
-                      <svg className="stamp-shape" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-                        {renderShape(stampElementDefinition.shapeId, stampShapeColor)}
-                      </svg>
-                      {isSelected && resizeMode ? (
-                        <div className="resize-handle-layer">
-                          {(['top', 'right', 'bottom', 'left'] as const).map((handle) => (
-                            <span
-                              key={handle}
-                              className={`resize-handle handle-${handle}`}
-                              onPointerDown={(event) =>
-                                handleResizeHandlePointerDown(event, stamp, stampElementDefinition, handle)
-                              }
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                    </button>
-                  );
-                })}
+      <div className="app-shell">
+          <aside className="left-toolbar" aria-label="Editor tools">
+              <h2 className="region-title">Tools</h2>
+              <div className="toolbar-group">
+                  {toolButtons.map((tool) => (
+                      <button
+                          key={tool.id}
+                          type="button"
+                          className={
+                              activeTool === tool.id
+                                  ? "tool-button active"
+                                  : "tool-button"
+                          }
+                          onClick={() => setActiveTool(tool.id)}
+                      >
+                          {tool.label}
+                      </button>
+                  ))}
               </div>
-            </div>
-            <p className="canvas-hint" role="status">
-              {activeTool === 'stamp'
-                ? 'Stamp tool active: click anywhere in the canvas to place the selected element.'
-                : resizeMode
-                  ? 'Resize mode active: drag the edge handles to scale the selected stamp from center.'
-                  : 'Select tool active: click a stamp to select and drag it.'}
-              {' '}
-              Shift+Scroll zooms the canvas.
-            </p>
-            <div className="canvas-zoom-indicator">Zoom {Math.round(viewport.zoom * 100)}%</div>
-            <dl className="canvas-summary">
-              <dt>Elements</dt>
-              <dd>{elements.length}</dd>
-              <dt>Stamps</dt>
-              <dd>{stamps.length}</dd>
-              <dt>Selected stamp</dt>
-              <dd>{selectedStampId ?? 'None'}</dd>
-              <dt>Selected size</dt>
-              <dd>{selectedStampSize ? `${selectedStampSize.toFixed(1)}px` : 'None'}</dd>
-              <dt>History checkpoints</dt>
-              <dd>{historyCount}</dd>
-              <dt>Redo checkpoints</dt>
-              <dd>{futureHistoryCount}</dd>
-            </dl>
-          </div>
-        </section>
-      </main>
+              <div className="toolbar-group">
+                  <button
+                      type="button"
+                      className="tool-button"
+                      onClick={runUndo}
+                      disabled={!canUndo}
+                      title="Undo (Ctrl/Cmd+Z)"
+                  >
+                      Undo
+                  </button>
+                  <button
+                      type="button"
+                      className="tool-button"
+                      onClick={runRedo}
+                      disabled={!canRedo}
+                      title="Redo (Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y)"
+                  >
+                      Redo
+                  </button>
+              </div>
+              <div className="toolbar-group">
+                  <button
+                      type="button"
+                      className="tool-button"
+                      onClick={handleBringToFront}
+                      disabled={!selectedStampId}
+                  >
+                      Bring to Front
+                  </button>
+                  <button
+                      type="button"
+                      className="tool-button"
+                      onClick={handleSendToBack}
+                      disabled={!selectedStampId}
+                  >
+                      Send to Back
+                  </button>
+                  <button
+                      type="button"
+                      className="tool-button"
+                      onClick={handleResizeAction}
+                      disabled={!selectedElement}
+                  >
+                      Resize Element
+                  </button>
+              </div>
+          </aside>
 
-      <aside className="right-panel" aria-label="Element details">
-        <section className="panel-section">
-          <div className="section-header">
-            <h2 className="region-title">Plans</h2>
-          </div>
-          <div className="plan-actions-grid">
-            <button type="button" className="tool-button panel-action" onClick={handleCreateNewPlan}>
-              New Plan
-            </button>
-            <button type="button" className="tool-button panel-action" onClick={handleSavePlanSnapshot}>
-              Save Snapshot
-            </button>
-          </div>
-          <label className="field-label" htmlFor="saved-plan-select">
-            Saved plans
-          </label>
-          <select
-            id="saved-plan-select"
-            value={selectedSavedPlanId}
-            onChange={(event) => setSelectedSavedPlanId(event.target.value)}
-          >
-            {savedPlanSummaries.length === 0 ? (
-              <option value="">No saved plans yet</option>
-            ) : (
-              savedPlanSummaries.map((summary) => (
-                <option key={summary.id} value={summary.id}>
-                  {summary.name || 'Untitled Plan'} ({formatSavedTimestamp(summary.savedAt)})
-                </option>
-              ))
-            )}
-          </select>
-          <button
-            type="button"
-            className="tool-button panel-action"
-            onClick={handleLoadSelectedPlan}
-            disabled={!selectedSavedPlanId}
-          >
-            Load Selected
-          </button>
-          {savedPlanSummaries.length === 0 ? (
-            <p className="panel-note">No saved plans yet. Create one, then save it.</p>
-          ) : (
-            <ul className="saved-plan-list">
-              {savedPlanSummaries.map((summary) => (
-                <li
-                  key={summary.id}
-                  className={summary.id === plan.id ? 'saved-plan-item active' : 'saved-plan-item'}
-                >
-                  <span>{summary.name || 'Untitled Plan'}</span>
-                  <span>{formatSavedTimestamp(summary.savedAt)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="panel-note">Rename by editing plan name, then saving the snapshot.</p>
-        </section>
+          <main className="editor-area">
+              <section className="canvas-region" aria-label="Canvas area">
+                  <div
+                      ref={canvasSurfaceRef}
+                      className={
+                          activeTool === "stamp"
+                              ? "canvas-surface stamp-mode-surface"
+                              : "canvas-surface"
+                      }
+                      onPointerDown={handleCanvasPointerDown}
+                      onWheel={handleCanvasWheel}
+                  >
+                      <div
+                          className="canvas-viewport"
+                          style={viewportTransformStyle}
+                      >
+                          {backgroundImage ? (
+                              <img
+                                  src={backgroundImage}
+                                  alt="Plan background"
+                                  className="canvas-background-image"
+                              />
+                          ) : (
+                              <p className="canvas-empty-state">
+                                  Upload a background image (under{" "}
+                                  {BACKGROUND_IMAGE_MAX_MB}MB) to start your
+                                  layout.
+                              </p>
+                          )}
+                          <div
+                              className={
+                                  activeTool === "stamp"
+                                      ? "stamp-layer stamp-layer-disabled"
+                                      : "stamp-layer"
+                              }
+                          >
+                              {sortedStamps.map((stamp) => {
+                                  const stampElementDefinition =
+                                      elementsById.get(stamp.elementId);
+                                  if (!stampElementDefinition) {
+                                      return null;
+                                  }
 
-        <section className="panel-section">
-          <h2 className="region-title">Background</h2>
-          <label className="field-label" htmlFor="background-upload-input">
-            Upload image
-          </label>
-          <input
-            id="background-upload-input"
-            type="file"
-            accept="image/*"
-            onChange={(event) => {
-              void handleBackgroundFileChange(event);
-            }}
-          />
-          <button
-            type="button"
-            className="tool-button panel-action"
-            onClick={() => {
-              setBackgroundImage(null);
-              setBackgroundUploadError(null);
-            }}
-            disabled={!backgroundImage}
-          >
-            Remove background
-          </button>
-          {backgroundUploadError ? (
-            <p className="error-note" role="status">
-              {backgroundUploadError}
-            </p>
+                                  const previewPosition =
+                                      dragPreview &&
+                                      dragPreview.stampId === stamp.id
+                                          ? {
+                                                x: dragPreview.x,
+                                                y: dragPreview.y,
+                                            }
+                                          : { x: stamp.x, y: stamp.y };
+                                  const effectiveScale =
+                                      resizeState &&
+                                      resizeState.elementId === stamp.elementId
+                                          ? resizeState.previewScale
+                                          : stampElementDefinition.scale;
+                                  const stampSize =
+                                      effectiveScale * STAMP_BASE_SIZE;
+                                  const isSelected =
+                                      stamp.id === selectedStampId;
+                                  const isDragging =
+                                      dragState?.stampId === stamp.id;
+                                  const stampShapeColor =
+                                      colorToHex[stampElementDefinition.color];
+
+                                  return (
+                                      <button
+                                          key={stamp.id}
+                                          type="button"
+                                          className={
+                                              isSelected
+                                                  ? isDragging
+                                                      ? "stamp-item selected dragging"
+                                                      : "stamp-item selected"
+                                                  : "stamp-item"
+                                          }
+                                          style={
+                                              {
+                                                  width: `${stampSize}px`,
+                                                  height: `${stampSize}px`,
+                                                  left: `${previewPosition.x - stampSize / 2}px`,
+                                                  top: `${previewPosition.y - stampSize / 2}px`,
+                                                  zIndex: stamp.zIndex + 100,
+                                                  "--stamp-outline-color":
+                                                      stampShapeColor,
+                                              } as CSSProperties
+                                          }
+                                          onPointerDown={(event) =>
+                                              handleStampPointerDown(
+                                                  event,
+                                                  stamp,
+                                              )
+                                          }
+                                          aria-label={`Stamp ${stampElementDefinition.name}`}
+                                      >
+                                          <svg
+                                              className="stamp-shape"
+                                              viewBox="0 0 100 100"
+                                              preserveAspectRatio="xMidYMid meet"
+                                          >
+                                              {renderShape(
+                                                  stampElementDefinition.shapeId,
+                                                  stampShapeColor,
+                                              )}
+                                          </svg>
+                                          {isSelected && resizeMode ? (
+                                              <div className="resize-handle-layer">
+                                                  {(
+                                                      [
+                                                          "top",
+                                                          "right",
+                                                          "bottom",
+                                                          "left",
+                                                      ] as const
+                                                  ).map((handle) => (
+                                                      <span
+                                                          key={handle}
+                                                          className={`resize-handle handle-${handle}`}
+                                                          onPointerDown={(
+                                                              event,
+                                                          ) =>
+                                                              handleResizeHandlePointerDown(
+                                                                  event,
+                                                                  stamp,
+                                                                  stampElementDefinition,
+                                                                  handle,
+                                                              )
+                                                          }
+                                                      />
+                                                  ))}
+                                              </div>
+                                          ) : null}
+                                      </button>
+                                  );
+                              })}
+                          </div>
+                      </div>
+                      <p className="canvas-hint" role="status">
+                          {activeTool === "stamp"
+                              ? "Stamp tool active: click anywhere in the canvas to place the selected element."
+                              : resizeMode
+                                ? "Resize mode active: drag the edge handles to scale the selected stamp from center."
+                                : "Select tool active: click a stamp to select and drag it."}{" "}
+                          Shift+Scroll zooms the canvas.
+                      </p>
+                      <div
+                          className={
+                              isZoomIndicatorVisible
+                                  ? "canvas-zoom-indicator visible"
+                                  : "canvas-zoom-indicator"
+                          }
+                      >
+                          Zoom {Math.round(viewport.zoom * 100)}%
+                      </div>
+                  </div>
+                  <div className="canvas-summary" role="status">
+                      <div className="canvas-summary-item">
+                          <span className="canvas-summary-label">Elements</span>
+                          <span className="canvas-summary-value">
+                              {elements.length}
+                          </span>
+                      </div>
+                      <div className="canvas-summary-item">
+                          <span className="canvas-summary-label">Stamps</span>
+                          <span className="canvas-summary-value">
+                              {stamps.length}
+                          </span>
+                      </div>
+                      <div className="canvas-summary-item">
+                          <span className="canvas-summary-label">
+                              Selected stamp
+                          </span>
+                          <span className="canvas-summary-value">
+                              {selectedStampId ?? "None"}
+                          </span>
+                      </div>
+                      <div className="canvas-summary-item">
+                          <span className="canvas-summary-label">
+                              Selected size
+                          </span>
+                          <span className="canvas-summary-value">
+                              {selectedStampSize
+                                  ? `${selectedStampSize.toFixed(1)}px`
+                                  : "None"}
+                          </span>
+                      </div>
+                  </div>
+              </section>
+          </main>
+
+          <aside className="right-panel" aria-label="Element details">
+              <section className="panel-section plan-section">
+                  <div className="section-header">
+                      <h2 className="region-title">Plans</h2>
+                  </div>
+                  <label className="field-label" htmlFor="plan-name-input">
+                      Plan name
+                  </label>
+                  <input
+                      id="plan-name-input"
+                      name="plan-name"
+                      value={planName}
+                      onChange={(event) => setPlanName(event.target.value)}
+                  />
+                  <div
+                      className={
+                          isPlanSaving
+                              ? "plan-save-indicator saving"
+                              : "plan-save-indicator saved"
+                      }
+                      role="status"
+                      aria-live="polite"
+                  >
+                      <span className="plan-save-texts">
+                          <span className="plan-save-text saved">
+                              Plan Saved
+                          </span>
+                          <span className="plan-save-text saving">
+                              Plan Saving 💾
+                          </span>
+                      </span>
+                  </div>
+                  <div className="file-field">
+                      
+                      <input
+                          id="background-upload-input"
+                          className="file-input"
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => {
+                              void handleBackgroundFileChange(event);
+                          }}
+                      />
+                      <label
+                          htmlFor="background-upload-input"
+                          className="file-label"
+                      >
+                          <button
+                          type="button"
+                          className="tool-button panel-action"
+                          onClick={() =>
+                              document
+                                  .getElementById("background-upload-input")
+                                  ?.click()
+                          }
+                          >
+                              {backgroundUploadLabel}
+                          </button>
+                      </label>
+                  </div>
+                  {backgroundUploadError ? (
+                      <p className="error-note" role="status">
+                          {backgroundUploadError}
+                      </p>
+                  ) : null}
+                  <div className="plan-actions-grid">
+                      <button
+                          type="button"
+                          className="tool-button panel-action"
+                          onClick={handleCreateNewPlan}
+                      >
+                          Create New
+                      </button>
+                      <button
+                          type="button"
+                          className="tool-button panel-action"
+                          onClick={handleLoadPlan}
+                      >
+                          Load
+                      </button>
+                  </div>
+              </section>
+
+              <section className="panel-section">
+                  <div className="section-header">
+                      <h2 className="region-title">Elements</h2>
+                      <button
+                          type="button"
+                          className="tool-button panel-action"
+                          onClick={handleAddElement}
+                      >
+                          Add Element
+                      </button>
+                  </div>
+                  <ul className="element-list">
+                      {elements.map((element) => (
+                          <li key={element.id}>
+                              <button
+                                  type="button"
+                                  className={
+                                      element.id === selectedElementId
+                                          ? "element-list-button selected"
+                                          : "element-list-button"
+                                  }
+                                  onClick={() => selectElement(element.id)}
+                              >
+                                  <span className="element-name">
+                                      {element.name}
+                                  </span>
+                                  <span>
+                                      {element.shapeId} - {element.color} -
+                                      scale {element.scale.toFixed(2)}
+                                  </span>
+                              </button>
+                          </li>
+                      ))}
+                  </ul>
+              </section>
+
+              <section className="panel-section">
+                  <h2 className="region-title">Element Details</h2>
+                  {selectedElement ? (
+                      <div className="form-grid">
+                          <label
+                              className="field-label"
+                              htmlFor="element-name-input"
+                          >
+                              Name
+                          </label>
+                          <input
+                              id="element-name-input"
+                              value={selectedElement.name}
+                              onChange={(event) =>
+                                  updateElement(selectedElement.id, {
+                                      name: event.target.value,
+                                  })
+                              }
+                          />
+
+                          <span className="field-label">Shape</span>
+                          <button
+                              type="button"
+                              className="tool-button panel-action"
+                              onClick={() => setIsShapePickerOpen(true)}
+                          >
+                              Choose shape ({selectedElement.shapeId})
+                          </button>
+
+                          <label
+                              className="field-label"
+                              htmlFor="element-color-input"
+                          >
+                              Color
+                          </label>
+                          <select
+                              id="element-color-input"
+                              value={selectedElement.color}
+                              onChange={(event) =>
+                                  updateElement(selectedElement.id, {
+                                      color: event.target
+                                          .value as PlanElement["color"],
+                                  })
+                              }
+                          >
+                              {COLOR_OPTIONS.map((colorOption) => (
+                                  <option key={colorOption} value={colorOption}>
+                                      {colorOption}
+                                  </option>
+                              ))}
+                          </select>
+
+                          <label
+                              className="field-label"
+                              htmlFor="element-scale-input"
+                          >
+                              Scale
+                          </label>
+                          <input
+                              id="element-scale-input"
+                              type="number"
+                              min={0.1}
+                              step={0.1}
+                              value={selectedElement.scale}
+                              onChange={(event) => {
+                                  const nextScale = Number(event.target.value);
+                                  if (
+                                      Number.isFinite(nextScale) &&
+                                      nextScale > 0
+                                  ) {
+                                      updateElement(selectedElement.id, {
+                                          scale: nextScale,
+                                      });
+                                  }
+                              }}
+                          />
+
+                          <button
+                              type="button"
+                              className="tool-button danger-button"
+                              onClick={handleDeleteElement}
+                          >
+                              Delete Element
+                          </button>
+                      </div>
+                  ) : (
+                      <p className="panel-note">
+                          Add an element to begin editing.
+                      </p>
+                  )}
+              </section>
+          </aside>
+
+          {planNotice ? (
+              <div
+                  className={
+                      planNotice.variant === "error"
+                          ? "plan-toast error"
+                          : "plan-toast success"
+                  }
+                  role="status"
+              >
+                  {planNotice.message}
+              </div>
           ) : null}
-        </section>
 
-        <section className="panel-section">
-          <div className="section-header">
-            <h2 className="region-title">Elements</h2>
-            <button type="button" className="tool-button panel-action" onClick={handleAddElement}>
-              Add Element
-            </button>
-          </div>
-          <ul className="element-list">
-            {elements.map((element) => (
-              <li key={element.id}>
-                <button
-                  type="button"
-                  className={
-                    element.id === selectedElementId ? 'element-list-button selected' : 'element-list-button'
-                  }
-                  onClick={() => selectElement(element.id)}
-                >
-                  <span className="element-name">{element.name}</span>
-                  <span>
-                    {element.shapeId} - {element.color} - scale {element.scale.toFixed(2)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="panel-section">
-          <h2 className="region-title">Element Details</h2>
-          {selectedElement ? (
-            <div className="form-grid">
-              <label className="field-label" htmlFor="element-name-input">
-                Name
-              </label>
-              <input
-                id="element-name-input"
-                value={selectedElement.name}
-                onChange={(event) =>
-                  updateElement(selectedElement.id, {
-                    name: event.target.value,
-                  })
-                }
-              />
-
-              <span className="field-label">Shape</span>
-              <button
-                type="button"
-                className="tool-button panel-action"
-                onClick={() => setIsShapePickerOpen(true)}
+          {isShapePickerOpen && selectedElement ? (
+              <div
+                  className="modal-backdrop"
+                  role="presentation"
+                  onClick={() => setIsShapePickerOpen(false)}
               >
-                Choose shape ({selectedElement.shapeId})
-              </button>
-
-              <label className="field-label" htmlFor="element-color-input">
-                Color
-              </label>
-              <select
-                id="element-color-input"
-                value={selectedElement.color}
-                onChange={(event) =>
-                  updateElement(selectedElement.id, {
-                    color: event.target.value as PlanElement['color'],
-                  })
-                }
-              >
-                {COLOR_OPTIONS.map((colorOption) => (
-                  <option key={colorOption} value={colorOption}>
-                    {colorOption}
-                  </option>
-                ))}
-              </select>
-
-              <label className="field-label" htmlFor="element-scale-input">
-                Scale
-              </label>
-              <input
-                id="element-scale-input"
-                type="number"
-                min={0.1}
-                step={0.1}
-                value={selectedElement.scale}
-                onChange={(event) => {
-                  const nextScale = Number(event.target.value);
-                  if (Number.isFinite(nextScale) && nextScale > 0) {
-                    updateElement(selectedElement.id, {
-                      scale: nextScale,
-                    });
-                  }
-                }}
-              />
-
-              <button type="button" className="tool-button danger-button" onClick={handleDeleteElement}>
-                Delete Element
-              </button>
-            </div>
-          ) : (
-            <p className="panel-note">Add an element to begin editing.</p>
-          )}
-        </section>
-      </aside>
-
-      {planNotice ? (
-        <div className={planNotice.variant === 'error' ? 'plan-toast error' : 'plan-toast success'} role="status">
-          {planNotice.message}
-        </div>
-      ) : null}
-
-      {isShapePickerOpen && selectedElement ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setIsShapePickerOpen(false)}>
-          <div
-            className="shape-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Choose element shape"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2>Choose a shape</h2>
-            <div className="shape-option-grid">
-              {SHAPE_OPTIONS.map((shapeOption) => (
-                <button
-                  key={shapeOption}
-                  type="button"
-                  className={
-                    selectedElement.shapeId === shapeOption
-                      ? 'tool-button shape-option active-shape'
-                      : 'tool-button shape-option'
-                  }
-                  onClick={() => {
-                    updateElement(selectedElement.id, { shapeId: shapeOption });
-                    setIsShapePickerOpen(false);
-                  }}
-                >
-                  {shapeOption}
-                </button>
-              ))}
-            </div>
-            <button type="button" className="tool-button panel-action" onClick={() => setIsShapePickerOpen(false)}>
-              Close
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
+                  <div
+                      className="shape-modal"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label="Choose element shape"
+                      onClick={(event) => event.stopPropagation()}
+                  >
+                      <h2>Choose a shape</h2>
+                      <div className="shape-option-grid">
+                          {SHAPE_OPTIONS.map((shapeOption) => (
+                              <button
+                                  key={shapeOption}
+                                  type="button"
+                                  className={
+                                      selectedElement.shapeId === shapeOption
+                                          ? "tool-button shape-option active-shape"
+                                          : "tool-button shape-option"
+                                  }
+                                  onClick={() => {
+                                      updateElement(selectedElement.id, {
+                                          shapeId: shapeOption,
+                                      });
+                                      setIsShapePickerOpen(false);
+                                  }}
+                              >
+                                  {shapeOption}
+                              </button>
+                          ))}
+                      </div>
+                      <button
+                          type="button"
+                          className="tool-button panel-action"
+                          onClick={() => setIsShapePickerOpen(false)}
+                      >
+                          Close
+                      </button>
+                  </div>
+              </div>
+          ) : null}
+      </div>
   );
 }
 
