@@ -1,29 +1,34 @@
-# RimWorld Xenogerm Weaver
+# Landscaper
 
-Xenogene planner for Rimworld's Biology expansion. Select a germline, pick some genes, and see exactly how the genes will play out.
+Landscaper is a browser-based layout tool for planning outdoor spaces. Users upload a top-down image, create reusable landscape elements, and stamp/move/resize those elements on a canvas.
 
-## Quick start
+## Quick Start
 
 1. Install dependencies:
 
+   ```bash
    yarn install
+   ```
 
 2. Run the dev server:
 
+   ```bash
    yarn dev
+   ```
 
-3. Create a production build:
+3. Build for production:
 
+   ```bash
    yarn build
+   ```
 
-## Artwork and Attribution
+## Key Docs
 
-This project includes some interface icons and graphical elements that
-originate from the video game **RimWorld**, © Ludeon Studios.
+- Product and technical scope: `DesignDoc.md`
+- Reusable phase/build prompts: `VibeCodingPrompts.md`
 
-These assets:
-- are the sole property of Ludeon Studios,
-- are included here under RimWorld’s modding and fan-content policies,
-- are **not** licensed under this project’s software license, and
-- may not be extracted, reused, or redistributed except as permitted by
-  Ludeon Studios.
+## Current Persistence Model
+
+- Save/load is local-only during this phase.
+- Plans are stored in browser local storage (`landscaper.plans.v1`).
+- No backend/cloud sync yet.
