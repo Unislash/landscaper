@@ -101,6 +101,7 @@ export interface StampMutations {
     stampId: string,
     updates: Partial<Omit<Stamp, 'id' | 'elementId'>>,
   ) => void;
+  deleteStamp: (stampId: string) => void;
   bringStampToFront: (stampId: string) => void;
   sendStampToBack: (stampId: string) => void;
 }

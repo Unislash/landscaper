@@ -67,7 +67,7 @@ const cloneUi = (ui: UiState): UiState => ({
 });
 
 const createUiStateForPlan = (plan: Plan): UiState => ({
-  activeTool: 'select',
+  activeTool: 'stamp',
   selectedElementId: plan.elements[0]?.id ?? null,
   selection: {
     selectedStampId: null,
@@ -83,13 +83,13 @@ const historyEntryId = (() => {
   };
 })();
 
-const stampEntryId = (() => {
-  let current = 0;
-  return () => {
-    current += 1;
-    return `stamp-${current}`;
-  };
-})();
+const createStampId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `stamp-${crypto.randomUUID()}`;
+  }
+
+  return `stamp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+};
 
 const clampZIndexBase = (stamps: Stamp[]): number => {
   if (stamps.length === 0) {
@@ -343,7 +343,7 @@ const storeCreator: StateCreator<LandscaperStore> = (set) => ({
           return state;
         }
 
-        createdStampId = stampEntryId();
+        createdStampId = createStampId();
 
         return {
           ...state,
@@ -417,6 +417,37 @@ const storeCreator: StateCreator<LandscaperStore> = (set) => ({
       }),
       false,
       'stamps/update',
+    ),
+
+  deleteStamp: (stampId) =>
+    set(
+      (state) => {
+        if (!state.plan.stamps.some((stamp) => stamp.id === stampId)) {
+          return state;
+        }
+
+        const remainingStamps = state.plan.stamps.filter((stamp) => stamp.id !== stampId);
+        const isSelected = state.ui.selection.selectedStampId === stampId;
+
+        return {
+          ...state,
+          history: appendHistory(state, 'Delete stamp'),
+          plan: {
+            ...state.plan,
+            stamps: remainingStamps,
+          },
+          ui: {
+            ...state.ui,
+            selection: {
+              ...state.ui.selection,
+              selectedStampId: isSelected ? null : state.ui.selection.selectedStampId,
+              resizeMode: isSelected ? false : state.ui.selection.resizeMode,
+            },
+          },
+        };
+      },
+      false,
+      'stamps/delete',
     ),
 
   bringStampToFront: (stampId) =>

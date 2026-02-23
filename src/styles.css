@@ -195,6 +195,12 @@ body {
   background: transparent;
   cursor: grab;
   touch-action: none;
+  outline: none;
+}
+
+.stamp-item:focus,
+.stamp-item:focus-visible {
+  outline: none;
 }
 
 .stamp-item.dragging {
@@ -408,7 +414,9 @@ body {
   text-align: left;
   cursor: pointer;
   display: grid;
-  gap: 4px;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
   color: #17301d;
 }
 
@@ -417,14 +425,46 @@ body {
   background: #edf6e9;
 }
 
-.element-list span {
-  margin: 0;
-  font-size: 0.9rem;
+.element-preview {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid #c7d8c2;
+  background: #f5faf2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.element-preview svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.element-list-text {
+  display: grid;
+  gap: 4px;
 }
 
 .element-name {
   font-weight: 700;
   margin-bottom: 4px;
+  font-size: 0.9rem;
+}
+
+.element-meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #35533c;
+}
+
+.shape-picker-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
 }
 
 .panel-note {

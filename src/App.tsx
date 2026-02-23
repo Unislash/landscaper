@@ -24,11 +24,12 @@ import {
   type PlanElement,
   type ShapeId,
   type Stamp,
+  type ToolMode,
 } from './state/types';
 
 const toolButtons = [
-  { id: 'select', label: 'Select' },
   { id: 'stamp', label: 'Stamp' },
+  { id: 'select', label: 'Select' },
 ] as const;
 
 const STAMP_BASE_SIZE = 56;
@@ -136,6 +137,8 @@ function App() {
   const canvasSurfaceRef = useRef<HTMLDivElement | null>(null);
   const saveTimeoutRef = useRef<number | null>(null);
   const zoomTimeoutRef = useRef<number | null>(null);
+  const previousToolRef = useRef<ToolMode | null>(null);
+  const shiftSelectActiveRef = useRef(false);
 
   const plan = useLandscaperStore((state) => state.plan);
   const planName = useLandscaperStore((state) => state.plan.name);
@@ -161,6 +164,7 @@ function App() {
   const stamps = useLandscaperStore((state) => state.plan.stamps);
   const stampElement = useLandscaperStore((state) => state.stampElement);
   const moveStamp = useLandscaperStore((state) => state.moveStamp);
+  const deleteStamp = useLandscaperStore((state) => state.deleteStamp);
   const bringStampToFront = useLandscaperStore((state) => state.bringStampToFront);
   const sendStampToBack = useLandscaperStore((state) => state.sendStampToBack);
   const undo = useLandscaperStore((state) => state.undo);
@@ -295,6 +299,126 @@ function App() {
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [canRedo, canUndo, runRedo, runUndo]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+
+      if ((event.key === 'Backspace' || event.key === 'Delete') && selectedStampId) {
+        event.preventDefault();
+        deleteStamp(selectedStampId);
+        setDragState(null);
+        setDragPreview(null);
+        setResizeState(null);
+        setResizeMode(false);
+        return;
+      }
+
+      if (event.key === 'Escape' && resizeMode) {
+        event.preventDefault();
+        setResizeMode(false);
+        setResizeState(null);
+        setDragState(null);
+        setDragPreview(null);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [
+    deleteStamp,
+    resizeMode,
+    selectedStampId,
+    setResizeMode,
+    setDragPreview,
+    setDragState,
+    setResizeState,
+  ]);
+
+  useEffect(() => {
+    if (!resizeMode) {
+      return;
+    }
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      if (target.closest('.resize-handle')) {
+        return;
+      }
+
+      const stampButton = target.closest<HTMLButtonElement>('.stamp-item');
+      if (stampButton && stampButton.dataset.stampId === selectedStampId) {
+        return;
+      }
+
+      setResizeMode(false);
+      setResizeState(null);
+    };
+
+    window.addEventListener('pointerdown', onPointerDown, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [resizeMode, selectedStampId, setResizeMode, setResizeState]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Shift' || isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (shiftSelectActiveRef.current) {
+        return;
+      }
+
+      shiftSelectActiveRef.current = true;
+      previousToolRef.current = activeTool;
+
+      if (activeTool !== 'select') {
+        setActiveTool('select');
+      }
+    };
+
+    const restoreTool = () => {
+      if (!shiftSelectActiveRef.current) {
+        return;
+      }
+
+      shiftSelectActiveRef.current = false;
+      const previousTool = previousToolRef.current;
+      if (previousTool && previousTool !== activeTool) {
+        setActiveTool(previousTool);
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== 'Shift') {
+        return;
+      }
+
+      restoreTool();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', restoreTool);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', restoreTool);
+    };
+  }, [activeTool, setActiveTool]);
 
   useEffect(() => {
     const persistedPlans = readPersistedPlans();
@@ -503,19 +627,31 @@ function App() {
     }
 
     event.stopPropagation();
-    selectStamp(stamp.id);
+
+    let activeStampId = stamp.id;
+    let activeStamp = stamp;
+
+    if (event.altKey && stamp.id === selectedStampId) {
+      const duplicatedStampId = stampElement(stamp.elementId, { x: stamp.x, y: stamp.y });
+      if (duplicatedStampId) {
+        activeStampId = duplicatedStampId;
+        activeStamp = { ...stamp, id: duplicatedStampId };
+      }
+    }
+
+    selectStamp(activeStampId);
     selectElement(stamp.elementId);
     setDragState({
-      stampId: stamp.id,
-      offsetX: point.x - stamp.x,
-      offsetY: point.y - stamp.y,
-      startX: stamp.x,
-      startY: stamp.y,
+      stampId: activeStampId,
+      offsetX: point.x - activeStamp.x,
+      offsetY: point.y - activeStamp.y,
+      startX: activeStamp.x,
+      startY: activeStamp.y,
     });
     setDragPreview({
-      stampId: stamp.id,
-      x: stamp.x,
-      y: stamp.y,
+      stampId: activeStampId,
+      x: activeStamp.x,
+      y: activeStamp.y,
     });
   };
 
@@ -670,7 +806,8 @@ function App() {
         : selectedStampElement.scale
       : null;
   const selectedStampSize = selectedStampScale ? selectedStampScale * STAMP_BASE_SIZE : null;
-  const backgroundUploadLabel = backgroundImage ? 'Choose new background image' : 'Upload background image';
+  const selectedElementName = selectedElement?.name ?? 'None';
+  const backgroundUploadLabel = backgroundImage ? 'Choose new background image' : 'choose file';
 
   return (
       <div className="app-shell">
@@ -827,6 +964,7 @@ function App() {
                                                       stampShapeColor,
                                               } as CSSProperties
                                           }
+                                          data-stamp-id={stamp.id}
                                           onPointerDown={(event) =>
                                               handleStampPointerDown(
                                                   event,
@@ -910,10 +1048,10 @@ function App() {
                       </div>
                       <div className="canvas-summary-item">
                           <span className="canvas-summary-label">
-                              Selected stamp
+                              Selected element
                           </span>
                           <span className="canvas-summary-value">
-                              {selectedStampId ?? "None"}
+                              {selectedElementName}
                           </span>
                       </div>
                       <div className="canvas-summary-item">
@@ -1001,14 +1139,14 @@ function App() {
                           className="tool-button panel-action"
                           onClick={handleCreateNewPlan}
                       >
-                          Create New
+                          Create New Plan
                       </button>
                       <button
                           type="button"
                           className="tool-button panel-action"
                           onClick={handleLoadPlan}
                       >
-                          Load
+                          Load Plan
                       </button>
                   </div>
               </section>
@@ -1036,12 +1174,28 @@ function App() {
                                   }
                                   onClick={() => selectElement(element.id)}
                               >
-                                  <span className="element-name">
-                                      {element.name}
+                                  <span
+                                      className="element-preview"
+                                      aria-hidden="true"
+                                  >
+                                      <svg
+                                          viewBox="0 0 100 100"
+                                          preserveAspectRatio="xMidYMid meet"
+                                      >
+                                          {renderShape(
+                                              element.shapeId,
+                                              colorToHex[element.color]
+                                          )}
+                                      </svg>
                                   </span>
-                                  <span>
-                                      {element.shapeId} - {element.color} -
-                                      scale {element.scale.toFixed(2)}
+                                  <span className="element-list-text">
+                                      <span className="element-name">
+                                          {element.name}
+                                      </span>
+                                      <span className="element-meta">
+                                          {element.shapeId} - {element.color} -
+                                          scale {element.scale.toFixed(2)}
+                                      </span>
                                   </span>
                               </button>
                           </li>
@@ -1070,13 +1224,29 @@ function App() {
                           />
 
                           <span className="field-label">Shape</span>
-                          <button
-                              type="button"
-                              className="tool-button panel-action"
-                              onClick={() => setIsShapePickerOpen(true)}
-                          >
-                              Choose shape ({selectedElement.shapeId})
-                          </button>
+                          <div className="shape-picker-row">
+                              <span
+                                  className="element-preview"
+                                  aria-hidden="true"
+                              >
+                                  <svg
+                                      viewBox="0 0 100 100"
+                                      preserveAspectRatio="xMidYMid meet"
+                                  >
+                                      {renderShape(
+                                          selectedElement.shapeId,
+                                          colorToHex[selectedElement.color]
+                                      )}
+                                  </svg>
+                              </span>
+                              <button
+                                  type="button"
+                                  className="tool-button panel-action"
+                                  onClick={() => setIsShapePickerOpen(true)}
+                              >
+                                  Choose shape ({selectedElement.shapeId})
+                              </button>
+                          </div>
 
                           <label
                               className="field-label"
@@ -1128,7 +1298,15 @@ function App() {
 
                           <button
                               type="button"
-                              className="tool-button danger-button"
+                              className="tool-button panel-action"
+                              onClick={handleResizeAction}
+                          >
+                              Resize Element
+                          </button>
+
+                          <button
+                              type="button"
+                              className="tool-button danger-button panel-action"
                               onClick={handleDeleteElement}
                           >
                               Delete Element
