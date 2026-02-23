@@ -134,4 +134,53 @@ describe('landscaper store foundation', () => {
     expect(state.ui.selection.selectedStampId).toBeNull();
     expect(state.history.past.at(-1)?.label).toBe('Delete element');
   });
+
+  it('stamps selected element and returns stamp id with front-most z-index', () => {
+    const firstStampId = store.getState().stampElement(SEEDED_ELEMENT_ID, { x: 120, y: 160 });
+    const secondStampId = store.getState().stampElement(SEEDED_ELEMENT_ID, { x: 180, y: 210 });
+
+    const state = store.getState();
+    expect(firstStampId).toBeTruthy();
+    expect(secondStampId).toBeTruthy();
+    expect(state.plan.stamps).toHaveLength(2);
+    expect(state.plan.stamps[0]?.zIndex).toBe(1);
+    expect(state.plan.stamps[1]?.zIndex).toBe(2);
+    expect(state.history.past.at(-1)?.label).toBe('Stamp element');
+  });
+
+  it('moves a stamp in canvas coordinates and records history', () => {
+    const stampId = store.getState().stampElement(SEEDED_ELEMENT_ID, { x: 100, y: 100 });
+    if (!stampId) {
+      throw new Error('Expected stamp id');
+    }
+
+    store.getState().moveStamp(stampId, { x: 245, y: 180 });
+
+    const state = store.getState();
+    expect(state.plan.stamps[0]?.x).toBe(245);
+    expect(state.plan.stamps[0]?.y).toBe(180);
+    expect(state.history.past.at(-1)?.label).toBe('Move stamp');
+  });
+
+  it('supports bringing a stamp to front and sending it to back', () => {
+    const first = store.getState().stampElement(SEEDED_ELEMENT_ID, { x: 100, y: 100 });
+    const second = store.getState().stampElement(SEEDED_ELEMENT_ID, { x: 130, y: 130 });
+    if (!first || !second) {
+      throw new Error('Expected created stamp ids');
+    }
+
+    store.getState().bringStampToFront(first);
+    let state = store.getState();
+    const firstAfterFront = state.plan.stamps.find((stamp) => stamp.id === first);
+    const secondAfterFront = state.plan.stamps.find((stamp) => stamp.id === second);
+    expect(firstAfterFront?.zIndex).toBeGreaterThan(secondAfterFront?.zIndex ?? 0);
+    expect(state.history.past.at(-1)?.label).toBe('Bring stamp to front');
+
+    store.getState().sendStampToBack(first);
+    state = store.getState();
+    const firstAfterBack = state.plan.stamps.find((stamp) => stamp.id === first);
+    const secondAfterBack = state.plan.stamps.find((stamp) => stamp.id === second);
+    expect(firstAfterBack?.zIndex).toBeLessThan(secondAfterBack?.zIndex ?? 0);
+    expect(state.history.past.at(-1)?.label).toBe('Send stamp to back');
+  });
 });

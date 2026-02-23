@@ -8,7 +8,7 @@ export type ShapeId = (typeof SHAPE_OPTIONS)[number];
 export const COLOR_OPTIONS = ['Green', 'Dark Green', 'Brown', 'Gray', 'Blue'] as const;
 export type ElementColor = (typeof COLOR_OPTIONS)[number];
 
-export type ToolMode = 'select';
+export type ToolMode = 'select' | 'stamp';
 
 export interface Viewport {
   zoom: number;
@@ -93,10 +93,14 @@ export interface ElementMutations {
 
 export interface StampMutations {
   addStamp: (stamp: Stamp) => void;
+  stampElement: (elementId: string, position: { x: number; y: number }) => string | null;
+  moveStamp: (stampId: string, position: { x: number; y: number }) => void;
   updateStamp: (
     stampId: string,
     updates: Partial<Omit<Stamp, 'id' | 'elementId'>>,
   ) => void;
+  bringStampToFront: (stampId: string) => void;
+  sendStampToBack: (stampId: string) => void;
 }
 
 export interface UiMutations {

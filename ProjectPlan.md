@@ -13,3 +13,11 @@
   - Added a shape picker modal using the starter `SHAPE_OPTIONS`.
   - Extended Zustand UI/action contracts for selected element state and element deletion behavior (including related stamp cleanup).
   - Added Vitest coverage for background upload validation and new store actions/state for element selection/deletion.
+- Implemented Phase 3 stamping + selection + transform basics from `DesignDoc.md`:
+  - Added `stamp` tool mode and canvas interactions to place stamps for the selected element.
+  - Added stamp rendering in the canvas with shape/color resolved from `Element` definitions so element edits propagate to all related stamps.
+  - Added select + drag behavior for stamps in canvas coordinates with undoable store mutations.
+  - Added selected stamp toolbar actions: bring to front and send to back (undoable z-order mutations).
+  - Added resize mode with edge handles and center-based scaling that updates element-level `scale`.
+  - Added resize fallback behavior: if no stamp exists for the selected element, create one at canvas center and enter resize mode.
+  - Extended store types/actions for stamp creation, movement, and z-ordering, with Vitest coverage for these mutations.

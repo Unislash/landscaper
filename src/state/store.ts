@@ -56,6 +56,22 @@ const historyEntryId = (() => {
   };
 })();
 
+const stampEntryId = (() => {
+  let current = 0;
+  return () => {
+    current += 1;
+    return `stamp-${current}`;
+  };
+})();
+
+const clampZIndexBase = (stamps: Stamp[]): number => {
+  if (stamps.length === 0) {
+    return 0;
+  }
+
+  return Math.max(...stamps.map((stamp) => stamp.zIndex));
+};
+
 const createHistoryEntry = (state: LandscaperState, label: string): HistoryEntry => ({
   id: historyEntryId(),
   label,
@@ -234,6 +250,75 @@ const storeCreator: StateCreator<LandscaperStore> = (set) => ({
       'stamps/add',
     ),
 
+  stampElement: (elementId, position) => {
+    let createdStampId: string | null = null;
+
+    set(
+      (state) => {
+        if (!state.plan.elements.some((element) => element.id === elementId)) {
+          return state;
+        }
+
+        createdStampId = stampEntryId();
+
+        return {
+          ...state,
+          history: appendHistory(state, 'Stamp element'),
+          plan: {
+            ...state.plan,
+            stamps: [
+              ...state.plan.stamps,
+              {
+                id: createdStampId,
+                elementId,
+                x: position.x,
+                y: position.y,
+                zIndex: clampZIndexBase(state.plan.stamps) + 1,
+              },
+            ],
+          },
+        };
+      },
+      false,
+      'stamps/stampElement',
+    );
+
+    return createdStampId;
+  },
+
+  moveStamp: (stampId, position) =>
+    set(
+      (state) => {
+        const existingStamp = state.plan.stamps.find((stamp) => stamp.id === stampId);
+        if (!existingStamp) {
+          return state;
+        }
+
+        if (existingStamp.x === position.x && existingStamp.y === position.y) {
+          return state;
+        }
+
+        return {
+          ...state,
+          history: appendHistory(state, 'Move stamp'),
+          plan: {
+            ...state.plan,
+            stamps: state.plan.stamps.map((stamp) =>
+              stamp.id === stampId
+                ? {
+                    ...stamp,
+                    x: position.x,
+                    y: position.y,
+                  }
+                : stamp,
+            ),
+          },
+        };
+      },
+      false,
+      'stamps/move',
+    ),
+
   updateStamp: (stampId, updates) =>
     set(
       (state) => ({
@@ -248,6 +333,74 @@ const storeCreator: StateCreator<LandscaperStore> = (set) => ({
       }),
       false,
       'stamps/update',
+    ),
+
+  bringStampToFront: (stampId) =>
+    set(
+      (state) => {
+        const targetStamp = state.plan.stamps.find((stamp) => stamp.id === stampId);
+        if (!targetStamp) {
+          return state;
+        }
+
+        const maxZIndex = clampZIndexBase(state.plan.stamps);
+        if (targetStamp.zIndex >= maxZIndex) {
+          return state;
+        }
+
+        const nextZIndex = maxZIndex + 1;
+        return {
+          ...state,
+          history: appendHistory(state, 'Bring stamp to front'),
+          plan: {
+            ...state.plan,
+            stamps: state.plan.stamps.map((stamp) =>
+              stamp.id === stampId
+                ? {
+                    ...stamp,
+                    zIndex: nextZIndex,
+                  }
+                : stamp,
+            ),
+          },
+        };
+      },
+      false,
+      'stamps/bringToFront',
+    ),
+
+  sendStampToBack: (stampId) =>
+    set(
+      (state) => {
+        const targetStamp = state.plan.stamps.find((stamp) => stamp.id === stampId);
+        if (!targetStamp) {
+          return state;
+        }
+
+        const minZIndex = Math.min(...state.plan.stamps.map((stamp) => stamp.zIndex));
+        if (targetStamp.zIndex <= minZIndex) {
+          return state;
+        }
+
+        const nextZIndex = minZIndex - 1;
+        return {
+          ...state,
+          history: appendHistory(state, 'Send stamp to back'),
+          plan: {
+            ...state.plan,
+            stamps: state.plan.stamps.map((stamp) =>
+              stamp.id === stampId
+                ? {
+                    ...stamp,
+                    zIndex: nextZIndex,
+                  }
+                : stamp,
+            ),
+          },
+        };
+      },
+      false,
+      'stamps/sendToBack',
     ),
 
   setActiveTool: (tool) =>

@@ -1,10 +1,67 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 
 import { BACKGROUND_IMAGE_MAX_MB, readFileAsDataUrl, validateBackgroundFile } from './backgroundUpload';
 import { useLandscaperStore } from './state/store';
-import { COLOR_OPTIONS, SHAPE_OPTIONS, type PlanElement } from './state/types';
+import {
+  COLOR_OPTIONS,
+  SHAPE_OPTIONS,
+  type ElementColor,
+  type PlanElement,
+  type ShapeId,
+  type Stamp,
+} from './state/types';
 
-const toolButtons = [{ id: 'select', label: 'Select' }] as const;
+const toolButtons = [
+  { id: 'select', label: 'Select' },
+  { id: 'stamp', label: 'Stamp' },
+] as const;
+
+const STAMP_BASE_SIZE = 56;
+const STAMP_MIN_SCALE = 0.2;
+const STAMP_MAX_SCALE = 6;
+const CANVAS_CENTER_FALLBACK = { x: 320, y: 260 };
+
+type ResizeHandle = 'top' | 'right' | 'bottom' | 'left';
+
+interface DragState {
+  stampId: string;
+  offsetX: number;
+  offsetY: number;
+  startX: number;
+  startY: number;
+}
+
+interface DragPreview {
+  stampId: string;
+  x: number;
+  y: number;
+}
+
+interface ResizeState {
+  stampId: string;
+  elementId: string;
+  handle: ResizeHandle;
+  centerX: number;
+  centerY: number;
+  initialScale: number;
+  previewScale: number;
+}
+
+const colorToHex: Record<ElementColor, string> = {
+  Green: '#4c8a47',
+  'Dark Green': '#2f5f32',
+  Brown: '#7a5b3a',
+  Gray: '#6a6f73',
+  Blue: '#2f6f9f',
+};
 
 const createElementId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -22,29 +79,105 @@ const createDefaultElement = (elementCount: number): PlanElement => ({
   scale: 1,
 });
 
+const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+const renderShape = (shapeId: ShapeId, color: string) => {
+  switch (shapeId) {
+    case 'circle':
+      return <circle cx="50" cy="50" r="32" fill={color} stroke="#1f3d22" strokeWidth="3" />;
+    case 'square':
+      return (
+        <rect x="18" y="18" width="64" height="64" rx="8" fill={color} stroke="#1f3d22" strokeWidth="3" />
+      );
+    case 'triangle':
+      return <polygon points="50,14 86,82 14,82" fill={color} stroke="#1f3d22" strokeWidth="3" />;
+    case 'shrub':
+      return (
+        <>
+          <circle cx="35" cy="56" r="22" fill={color} stroke="#1f3d22" strokeWidth="2.5" />
+          <circle cx="65" cy="56" r="22" fill={color} stroke="#1f3d22" strokeWidth="2.5" />
+          <circle cx="50" cy="36" r="22" fill={color} stroke="#1f3d22" strokeWidth="2.5" />
+        </>
+      );
+    default:
+      return null;
+  }
+};
+
 function App() {
+  const canvasSurfaceRef = useRef<HTMLDivElement | null>(null);
+
   const planName = useLandscaperStore((state) => state.plan.name);
   const backgroundImage = useLandscaperStore((state) => state.plan.backgroundImage);
   const setPlanName = useLandscaperStore((state) => state.setPlanName);
   const setBackgroundImage = useLandscaperStore((state) => state.setBackgroundImage);
   const activeTool = useLandscaperStore((state) => state.ui.activeTool);
   const setActiveTool = useLandscaperStore((state) => state.setActiveTool);
+  const resizeMode = useLandscaperStore((state) => state.ui.selection.resizeMode);
+  const setResizeMode = useLandscaperStore((state) => state.setResizeMode);
   const selectedElementId = useLandscaperStore((state) => state.ui.selectedElementId);
   const selectElement = useLandscaperStore((state) => state.selectElement);
   const selectedStampId = useLandscaperStore((state) => state.ui.selection.selectedStampId);
+  const selectStamp = useLandscaperStore((state) => state.selectStamp);
   const elements = useLandscaperStore((state) => state.plan.elements);
   const addElement = useLandscaperStore((state) => state.addElement);
   const updateElement = useLandscaperStore((state) => state.updateElement);
   const deleteElement = useLandscaperStore((state) => state.deleteElement);
   const stamps = useLandscaperStore((state) => state.plan.stamps);
+  const stampElement = useLandscaperStore((state) => state.stampElement);
+  const moveStamp = useLandscaperStore((state) => state.moveStamp);
+  const bringStampToFront = useLandscaperStore((state) => state.bringStampToFront);
+  const sendStampToBack = useLandscaperStore((state) => state.sendStampToBack);
   const historyCount = useLandscaperStore((state) => state.history.past.length);
   const [backgroundUploadError, setBackgroundUploadError] = useState<string | null>(null);
   const [isShapePickerOpen, setIsShapePickerOpen] = useState(false);
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [resizeState, setResizeState] = useState<ResizeState | null>(null);
+
+  const elementsById = useMemo(
+    () => new Map(elements.map((element) => [element.id, element])),
+    [elements],
+  );
+  const sortedStamps = useMemo(
+    () => [...stamps].sort((firstStamp, secondStamp) => firstStamp.zIndex - secondStamp.zIndex),
+    [stamps],
+  );
 
   const selectedElement = useMemo(
     () => elements.find((element) => element.id === selectedElementId) ?? null,
     [elements, selectedElementId],
   );
+  const selectedStamp = useMemo(
+    () => stamps.find((stamp) => stamp.id === selectedStampId) ?? null,
+    [selectedStampId, stamps],
+  );
+
+  const getCanvasPoint = useCallback((clientX: number, clientY: number) => {
+    const surfaceRect = canvasSurfaceRef.current?.getBoundingClientRect();
+    if (!surfaceRect) {
+      return null;
+    }
+
+    return {
+      x: clamp(clientX - surfaceRect.left, 0, surfaceRect.width),
+      y: clamp(clientY - surfaceRect.top, 0, surfaceRect.height),
+      width: surfaceRect.width,
+      height: surfaceRect.height,
+    };
+  }, []);
+
+  const getCanvasCenter = useCallback(() => {
+    const surfaceRect = canvasSurfaceRef.current?.getBoundingClientRect();
+    if (!surfaceRect) {
+      return CANVAS_CENTER_FALLBACK;
+    }
+
+    return {
+      x: surfaceRect.width / 2,
+      y: surfaceRect.height / 2,
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedElementId && elements.length > 0) {
@@ -56,6 +189,12 @@ function App() {
       selectElement(elements[0]?.id ?? null);
     }
   }, [elements, selectElement, selectedElement, selectedElementId]);
+
+  useEffect(() => {
+    if (activeTool === 'stamp' && resizeMode) {
+      setResizeMode(false);
+    }
+  }, [activeTool, resizeMode, setResizeMode]);
 
   const handleBackgroundFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
@@ -94,6 +233,218 @@ function App() {
     deleteElement(selectedElement.id);
   };
 
+  const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const point = getCanvasPoint(event.clientX, event.clientY);
+    if (!point) {
+      return;
+    }
+
+    if (activeTool === 'stamp') {
+      if (!selectedElement) {
+        return;
+      }
+
+      const newStampId = stampElement(selectedElement.id, {
+        x: point.x,
+        y: point.y,
+      });
+
+      if (newStampId) {
+        selectStamp(newStampId);
+        setResizeMode(false);
+      }
+      return;
+    }
+
+    selectStamp(null);
+    setResizeMode(false);
+    setDragState(null);
+    setDragPreview(null);
+    setResizeState(null);
+  };
+
+  const handleStampPointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    stamp: Stamp,
+  ) => {
+    if (activeTool !== 'select') {
+      return;
+    }
+
+    const point = getCanvasPoint(event.clientX, event.clientY);
+    if (!point) {
+      return;
+    }
+
+    event.stopPropagation();
+    selectStamp(stamp.id);
+    selectElement(stamp.elementId);
+    setDragState({
+      stampId: stamp.id,
+      offsetX: point.x - stamp.x,
+      offsetY: point.y - stamp.y,
+      startX: stamp.x,
+      startY: stamp.y,
+    });
+    setDragPreview({
+      stampId: stamp.id,
+      x: stamp.x,
+      y: stamp.y,
+    });
+  };
+
+  const handleResizeHandlePointerDown = (
+    event: ReactPointerEvent<HTMLSpanElement>,
+    stamp: Stamp,
+    element: PlanElement,
+    handle: ResizeHandle,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    setActiveTool('select');
+    selectStamp(stamp.id);
+    selectElement(stamp.elementId);
+    setResizeMode(true);
+    setResizeState({
+      stampId: stamp.id,
+      elementId: stamp.elementId,
+      handle,
+      centerX: stamp.x,
+      centerY: stamp.y,
+      initialScale: element.scale,
+      previewScale: element.scale,
+    });
+  };
+
+  useEffect(() => {
+    if (!dragState && !resizeState) {
+      return;
+    }
+
+    const onPointerMove = (event: PointerEvent) => {
+      const point = getCanvasPoint(event.clientX, event.clientY);
+      if (!point) {
+        return;
+      }
+
+      if (dragState) {
+        setDragPreview({
+          stampId: dragState.stampId,
+          x: point.x - dragState.offsetX,
+          y: point.y - dragState.offsetY,
+        });
+      }
+
+      if (resizeState) {
+        const distanceFromCenter =
+          resizeState.handle === 'left' || resizeState.handle === 'right'
+            ? Math.abs(point.x - resizeState.centerX)
+            : Math.abs(point.y - resizeState.centerY);
+        const nextScale = clamp((distanceFromCenter * 2) / STAMP_BASE_SIZE, STAMP_MIN_SCALE, STAMP_MAX_SCALE);
+
+        setResizeState((currentState) => {
+          if (!currentState) {
+            return null;
+          }
+
+          return {
+            ...currentState,
+            previewScale: nextScale,
+          };
+        });
+      }
+    };
+
+    const onPointerEnd = () => {
+      if (dragState && dragPreview) {
+        const moved =
+          Math.abs(dragPreview.x - dragState.startX) > 0.5 ||
+          Math.abs(dragPreview.y - dragState.startY) > 0.5;
+        if (moved) {
+          moveStamp(dragState.stampId, {
+            x: dragPreview.x,
+            y: dragPreview.y,
+          });
+        }
+      }
+
+      if (resizeState) {
+        const scaleChanged = Math.abs(resizeState.previewScale - resizeState.initialScale) > 0.001;
+        if (scaleChanged) {
+          updateElement(resizeState.elementId, {
+            scale: resizeState.previewScale,
+          });
+        }
+      }
+
+      setDragState(null);
+      setDragPreview(null);
+      setResizeState(null);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerEnd);
+    window.addEventListener('pointercancel', onPointerEnd);
+
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerEnd);
+      window.removeEventListener('pointercancel', onPointerEnd);
+    };
+  }, [dragPreview, dragState, getCanvasPoint, moveStamp, resizeState, updateElement]);
+
+  const handleBringToFront = () => {
+    if (!selectedStampId) {
+      return;
+    }
+
+    bringStampToFront(selectedStampId);
+  };
+
+  const handleSendToBack = () => {
+    if (!selectedStampId) {
+      return;
+    }
+
+    sendStampToBack(selectedStampId);
+  };
+
+  const handleResizeAction = () => {
+    if (!selectedElement) {
+      return;
+    }
+
+    setActiveTool('select');
+    setResizeMode(true);
+
+    if (selectedStamp) {
+      selectElement(selectedStamp.elementId);
+      return;
+    }
+
+    const existingStamp = stamps.find((stamp) => stamp.elementId === selectedElement.id);
+    if (existingStamp) {
+      selectStamp(existingStamp.id);
+      return;
+    }
+
+    const centerPoint = getCanvasCenter();
+    const createdStampId = stampElement(selectedElement.id, centerPoint);
+    if (createdStampId) {
+      selectStamp(createdStampId);
+    }
+  };
+
+  const selectedStampElement = selectedStamp ? elementsById.get(selectedStamp.elementId) : null;
+  const selectedStampScale =
+    selectedStamp && selectedStampElement
+      ? resizeState && resizeState.stampId === selectedStamp.id
+        ? resizeState.previewScale
+        : selectedStampElement.scale
+      : null;
+  const selectedStampSize = selectedStampScale ? selectedStampScale * STAMP_BASE_SIZE : null;
+
   return (
     <div className="app-shell">
       <aside className="left-toolbar" aria-label="Editor tools">
@@ -119,13 +470,13 @@ function App() {
           </button>
         </div>
         <div className="toolbar-group">
-          <button type="button" className="tool-button" disabled>
+          <button type="button" className="tool-button" onClick={handleBringToFront} disabled={!selectedStampId}>
             Bring to Front
           </button>
-          <button type="button" className="tool-button" disabled>
+          <button type="button" className="tool-button" onClick={handleSendToBack} disabled={!selectedStampId}>
             Send to Back
           </button>
-          <button type="button" className="tool-button" disabled>
+          <button type="button" className="tool-button" onClick={handleResizeAction} disabled={!selectedElement}>
             Resize Element
           </button>
         </div>
@@ -144,7 +495,11 @@ function App() {
 
         <section className="canvas-region" aria-label="Canvas area">
           <h1>Landscaper Canvas</h1>
-          <div className="canvas-surface">
+          <div
+            ref={canvasSurfaceRef}
+            className={activeTool === 'stamp' ? 'canvas-surface stamp-mode-surface' : 'canvas-surface'}
+            onPointerDown={handleCanvasPointerDown}
+          >
             {backgroundImage ? (
               <img src={backgroundImage} alt="Plan background" className="canvas-background-image" />
             ) : (
@@ -152,6 +507,74 @@ function App() {
                 Upload a background image (under {BACKGROUND_IMAGE_MAX_MB}MB) to start your layout.
               </p>
             )}
+            <p className="canvas-hint" role="status">
+              {activeTool === 'stamp'
+                ? 'Stamp tool active: click anywhere in the canvas to place the selected element.'
+                : resizeMode
+                  ? 'Resize mode active: drag the edge handles to scale the selected stamp from center.'
+                  : 'Select tool active: click a stamp to select and drag it.'}
+            </p>
+            <div className={activeTool === 'stamp' ? 'stamp-layer stamp-layer-disabled' : 'stamp-layer'}>
+              {sortedStamps.map((stamp) => {
+                const stampElementDefinition = elementsById.get(stamp.elementId);
+                if (!stampElementDefinition) {
+                  return null;
+                }
+
+                const previewPosition =
+                  dragPreview && dragPreview.stampId === stamp.id
+                    ? { x: dragPreview.x, y: dragPreview.y }
+                    : { x: stamp.x, y: stamp.y };
+                const effectiveScale =
+                  resizeState && resizeState.elementId === stamp.elementId
+                    ? resizeState.previewScale
+                    : stampElementDefinition.scale;
+                const stampSize = effectiveScale * STAMP_BASE_SIZE;
+                const isSelected = stamp.id === selectedStampId;
+                const isDragging = dragState?.stampId === stamp.id;
+                const stampShapeColor = colorToHex[stampElementDefinition.color];
+
+                return (
+                  <button
+                    key={stamp.id}
+                    type="button"
+                    className={
+                      isSelected
+                        ? isDragging
+                          ? 'stamp-item selected dragging'
+                          : 'stamp-item selected'
+                        : 'stamp-item'
+                    }
+                    style={{
+                      width: `${stampSize}px`,
+                      height: `${stampSize}px`,
+                      left: `${previewPosition.x - stampSize / 2}px`,
+                      top: `${previewPosition.y - stampSize / 2}px`,
+                      zIndex: stamp.zIndex + 100,
+                    }}
+                    onPointerDown={(event) => handleStampPointerDown(event, stamp)}
+                    aria-label={`Stamp ${stampElementDefinition.name}`}
+                  >
+                    <svg className="stamp-shape" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+                      {renderShape(stampElementDefinition.shapeId, stampShapeColor)}
+                    </svg>
+                    {isSelected && resizeMode ? (
+                      <div className="resize-handle-layer">
+                        {(['top', 'right', 'bottom', 'left'] as const).map((handle) => (
+                          <span
+                            key={handle}
+                            className={`resize-handle handle-${handle}`}
+                            onPointerDown={(event) =>
+                              handleResizeHandlePointerDown(event, stamp, stampElementDefinition, handle)
+                            }
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
             <dl className="canvas-summary">
               <dt>Elements</dt>
               <dd>{elements.length}</dd>
@@ -159,6 +582,8 @@ function App() {
               <dd>{stamps.length}</dd>
               <dt>Selected stamp</dt>
               <dd>{selectedStampId ?? 'None'}</dd>
+              <dt>Selected size</dt>
+              <dd>{selectedStampSize ? `${selectedStampSize.toFixed(1)}px` : 'None'}</dd>
               <dt>History checkpoints</dt>
               <dd>{historyCount}</dd>
             </dl>
