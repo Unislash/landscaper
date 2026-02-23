@@ -17,19 +17,27 @@ import {
 const SEEDED_ELEMENT_ID = 'element-seeded-shrub';
 const PLAN_ID = 'plan-localhost';
 
-const initialPlan = (): Plan => ({
-  id: PLAN_ID,
-  name: 'Untitled Plan',
+const createPlanId = (() => {
+  let counter = 0;
+  return () => {
+    counter += 1;
+    return `plan-${Date.now().toString(36)}-${counter.toString(36)}`;
+  };
+})();
+
+const buildSeededElement = (): PlanElement => ({
+  id: SEEDED_ELEMENT_ID,
+  name: 'Shrub',
+  shapeId: 'shrub',
+  color: 'Green',
+  scale: 1,
+});
+
+const createPlan = (id: string, name = 'Untitled Plan'): Plan => ({
+  id,
+  name,
   backgroundImage: null,
-  elements: [
-    {
-      id: SEEDED_ELEMENT_ID,
-      name: 'Shrub',
-      shapeId: 'shrub',
-      color: 'Green',
-      scale: 1,
-    },
-  ],
+  elements: [buildSeededElement()],
   stamps: [],
   viewport: {
     zoom: 1,
@@ -37,6 +45,8 @@ const initialPlan = (): Plan => ({
     panY: 0,
   },
 });
+
+const initialPlan = (): Plan => createPlan(PLAN_ID);
 
 const cloneElements = (elements: PlanElement[]): PlanElement[] =>
   elements.map((element) => ({ ...element }));
@@ -54,6 +64,15 @@ const cloneUi = (ui: UiState): UiState => ({
   activeTool: ui.activeTool,
   selectedElementId: ui.selectedElementId,
   selection: { ...ui.selection },
+});
+
+const createUiStateForPlan = (plan: Plan): UiState => ({
+  activeTool: 'select',
+  selectedElementId: plan.elements[0]?.id ?? null,
+  selection: {
+    selectedStampId: null,
+    resizeMode: false,
+  },
 });
 
 const historyEntryId = (() => {
@@ -109,25 +128,68 @@ const appendHistory = (state: LandscaperState, label: string) => {
   };
 };
 
-const createInitialState = (): LandscaperState => ({
-  plan: initialPlan(),
-  ui: {
-    activeTool: 'select',
-    selectedElementId: SEEDED_ELEMENT_ID,
-    selection: {
-      selectedStampId: null,
-      resizeMode: false,
+const createInitialState = (): LandscaperState => {
+  const plan = initialPlan();
+
+  return {
+    plan,
+    ui: createUiStateForPlan(plan),
+    history: {
+      past: [],
+      future: [],
+      limit: HISTORY_LIMIT,
     },
-  },
-  history: {
-    past: [],
-    future: [],
-    limit: HISTORY_LIMIT,
-  },
-});
+  };
+};
 
 const storeCreator: StateCreator<LandscaperStore> = (set) => ({
   ...createInitialState(),
+
+  createNewPlan: (name = 'Untitled Plan') => {
+    let nextPlanId = '';
+
+    set(
+      (state) => {
+        const createdPlan = createPlan(createPlanId(), name);
+        nextPlanId = createdPlan.id;
+
+        return {
+          ...state,
+          plan: createdPlan,
+          ui: createUiStateForPlan(createdPlan),
+          history: {
+            ...state.history,
+            past: [],
+            future: [],
+          },
+        };
+      },
+      false,
+      'plan/createNew',
+    );
+
+    return nextPlanId;
+  },
+
+  loadPlan: (plan) =>
+    set(
+      (state) => {
+        const loadedPlan = clonePlan(plan);
+
+        return {
+          ...state,
+          plan: loadedPlan,
+          ui: createUiStateForPlan(loadedPlan),
+          history: {
+            ...state.history,
+            past: [],
+            future: [],
+          },
+        };
+      },
+      false,
+      'plan/load',
+    ),
 
   setPlanName: (name) =>
     set(

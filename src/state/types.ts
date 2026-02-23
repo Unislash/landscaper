@@ -77,6 +77,8 @@ export interface LandscaperState {
 }
 
 export interface PlanMutations {
+  createNewPlan: (name?: string) => string;
+  loadPlan: (plan: Plan) => void;
   setPlanName: (name: string) => void;
   setBackgroundImage: (backgroundImage: string | null) => void;
   setViewport: (viewport: Partial<Viewport>) => void;

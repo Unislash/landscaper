@@ -30,3 +30,11 @@
   - Added shift+scroll canvas zoom using the plan viewport (`zoom`) and applied scaling at viewport render level instead of rewriting stamp coordinates.
   - Updated pointer-to-canvas coordinate conversion to account for viewport zoom so stamping, selection, dragging, and resize still operate in canvas units.
   - Added Vitest coverage for undo/redo flows and viewport zoom mutation behavior.
+- Implemented Phase 5 local persistence + polish from `DesignDoc.md`:
+  - Added local-storage persistence module keyed by `landscaper.plans.v1` with versioned schema and safe read/write handling.
+  - Added plan persistence operations: save snapshot (upsert), list saved plans, set active saved plan, and load plan by id.
+  - Added app-level Plan Library UI (new plan, save snapshot, load selected saved plan) in the right panel.
+  - Added startup load from local storage so the active saved plan rehydrates on refresh.
+  - Added lightweight UX polish for this phase: saved-plan empty state, saved-plan status list, and transient success/error toast messages.
+  - Extended store with `createNewPlan` and `loadPlan` actions to support persistence flows cleanly while resetting selection/history.
+  - Added Vitest coverage for persistence utilities and new store plan actions.

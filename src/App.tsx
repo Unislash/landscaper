@@ -10,6 +10,14 @@ import {
 } from 'react';
 
 import { BACKGROUND_IMAGE_MAX_MB, readFileAsDataUrl, validateBackgroundFile } from './backgroundUpload';
+import {
+  getPersistedPlanById,
+  listSavedPlanSummaries,
+  readPersistedPlans,
+  setActivePersistedPlan,
+  type SavedPlanSummary,
+  upsertPersistedPlan,
+} from './planPersistence';
 import { useLandscaperStore } from './state/store';
 import {
   COLOR_OPTIONS,
@@ -58,6 +66,11 @@ interface ResizeState {
   previewScale: number;
 }
 
+interface PlanNotice {
+  variant: 'success' | 'error';
+  message: string;
+}
+
 const colorToHex: Record<ElementColor, string> = {
   Green: '#4c8a47',
   'Dark Green': '#2f5f32',
@@ -83,6 +96,20 @@ const createDefaultElement = (elementCount: number): PlanElement => ({
 });
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+const formatSavedTimestamp = (value: string): string => {
+  const parsedValue = Date.parse(value);
+  if (Number.isNaN(parsedValue)) {
+    return 'Saved';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(parsedValue);
+};
 
 const isEditableTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
@@ -124,8 +151,11 @@ const renderShape = (shapeId: ShapeId, color: string) => {
 function App() {
   const canvasSurfaceRef = useRef<HTMLDivElement | null>(null);
 
+  const plan = useLandscaperStore((state) => state.plan);
   const planName = useLandscaperStore((state) => state.plan.name);
   const backgroundImage = useLandscaperStore((state) => state.plan.backgroundImage);
+  const createNewPlan = useLandscaperStore((state) => state.createNewPlan);
+  const loadPlan = useLandscaperStore((state) => state.loadPlan);
   const setPlanName = useLandscaperStore((state) => state.setPlanName);
   const setBackgroundImage = useLandscaperStore((state) => state.setBackgroundImage);
   const viewport = useLandscaperStore((state) => state.plan.viewport);
@@ -153,6 +183,9 @@ function App() {
   const futureHistoryCount = useLandscaperStore((state) => state.history.future.length);
   const [backgroundUploadError, setBackgroundUploadError] = useState<string | null>(null);
   const [isShapePickerOpen, setIsShapePickerOpen] = useState(false);
+  const [savedPlanSummaries, setSavedPlanSummaries] = useState<SavedPlanSummary[]>([]);
+  const [selectedSavedPlanId, setSelectedSavedPlanId] = useState<string>('');
+  const [planNotice, setPlanNotice] = useState<PlanNotice | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
@@ -279,6 +312,41 @@ function App() {
     };
   }, [canRedo, canUndo, runRedo, runUndo]);
 
+  useEffect(() => {
+    const persistedPlans = readPersistedPlans();
+    const summaries = listSavedPlanSummaries(persistedPlans);
+    setSavedPlanSummaries(summaries);
+
+    const activePlanId = persistedPlans.activePlanId ?? summaries[0]?.id ?? '';
+    if (!activePlanId) {
+      setSelectedSavedPlanId('');
+      return;
+    }
+
+    const persistedPlan = persistedPlans.plans.find((entry) => entry.plan.id === activePlanId)?.plan;
+    if (!persistedPlan) {
+      setSelectedSavedPlanId('');
+      return;
+    }
+
+    loadPlan(persistedPlan);
+    setSelectedSavedPlanId(activePlanId);
+  }, [loadPlan]);
+
+  useEffect(() => {
+    if (!planNotice) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setPlanNotice(null);
+    }, 3200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [planNotice]);
+
   const handleBackgroundFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
     event.target.value = '';
@@ -314,6 +382,59 @@ function App() {
     }
 
     deleteElement(selectedElement.id);
+  };
+
+  const handleCreateNewPlan = () => {
+    createNewPlan('Untitled Plan');
+    setSelectedSavedPlanId('');
+    setPlanNotice({
+      variant: 'success',
+      message: 'Created a new plan. Save snapshot to store it locally.',
+    });
+  };
+
+  const handleSavePlanSnapshot = () => {
+    const persistedPlans = upsertPersistedPlan(plan);
+    if (!persistedPlans) {
+      setPlanNotice({
+        variant: 'error',
+        message: 'Unable to save plan in local storage.',
+      });
+      return;
+    }
+
+    const summaries = listSavedPlanSummaries(persistedPlans);
+    setSavedPlanSummaries(summaries);
+    setSelectedSavedPlanId(plan.id);
+    setPlanNotice({
+      variant: 'success',
+      message: `Saved "${plan.name || 'Untitled Plan'}" locally.`,
+    });
+  };
+
+  const handleLoadSelectedPlan = () => {
+    if (!selectedSavedPlanId) {
+      return;
+    }
+
+    const loadedPlan = getPersistedPlanById(selectedSavedPlanId);
+    if (!loadedPlan) {
+      setPlanNotice({
+        variant: 'error',
+        message: 'Selected plan was not found in local storage.',
+      });
+      return;
+    }
+
+    loadPlan(loadedPlan);
+    const persistedPlans = setActivePersistedPlan(selectedSavedPlanId);
+    if (persistedPlans) {
+      setSavedPlanSummaries(listSavedPlanSummaries(persistedPlans));
+    }
+    setPlanNotice({
+      variant: 'success',
+      message: `Loaded "${loadedPlan.name}".`,
+    });
   };
 
   const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -714,6 +835,62 @@ function App() {
 
       <aside className="right-panel" aria-label="Element details">
         <section className="panel-section">
+          <div className="section-header">
+            <h2 className="region-title">Plans</h2>
+          </div>
+          <div className="plan-actions-grid">
+            <button type="button" className="tool-button panel-action" onClick={handleCreateNewPlan}>
+              New Plan
+            </button>
+            <button type="button" className="tool-button panel-action" onClick={handleSavePlanSnapshot}>
+              Save Snapshot
+            </button>
+          </div>
+          <label className="field-label" htmlFor="saved-plan-select">
+            Saved plans
+          </label>
+          <select
+            id="saved-plan-select"
+            value={selectedSavedPlanId}
+            onChange={(event) => setSelectedSavedPlanId(event.target.value)}
+          >
+            {savedPlanSummaries.length === 0 ? (
+              <option value="">No saved plans yet</option>
+            ) : (
+              savedPlanSummaries.map((summary) => (
+                <option key={summary.id} value={summary.id}>
+                  {summary.name || 'Untitled Plan'} ({formatSavedTimestamp(summary.savedAt)})
+                </option>
+              ))
+            )}
+          </select>
+          <button
+            type="button"
+            className="tool-button panel-action"
+            onClick={handleLoadSelectedPlan}
+            disabled={!selectedSavedPlanId}
+          >
+            Load Selected
+          </button>
+          {savedPlanSummaries.length === 0 ? (
+            <p className="panel-note">No saved plans yet. Create one, then save it.</p>
+          ) : (
+            <ul className="saved-plan-list">
+              {savedPlanSummaries.map((summary) => (
+                <li
+                  key={summary.id}
+                  className={summary.id === plan.id ? 'saved-plan-item active' : 'saved-plan-item'}
+                >
+                  <span>{summary.name || 'Untitled Plan'}</span>
+                  <span>{formatSavedTimestamp(summary.savedAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="panel-note">Rename by editing plan name, then saving the snapshot.</p>
+        </section>
+
+        <section className="panel-section">
           <h2 className="region-title">Background</h2>
           <label className="field-label" htmlFor="background-upload-input">
             Upload image
@@ -844,6 +1021,12 @@ function App() {
           )}
         </section>
       </aside>
+
+      {planNotice ? (
+        <div className={planNotice.variant === 'error' ? 'plan-toast error' : 'plan-toast success'} role="status">
+          {planNotice.message}
+        </div>
+      ) : null}
 
       {isShapePickerOpen && selectedElement ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setIsShapePickerOpen(false)}>

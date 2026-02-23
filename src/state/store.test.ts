@@ -243,4 +243,62 @@ describe('landscaper store foundation', () => {
     expect(state.history.past).toHaveLength(0);
     expect(state.history.future).toHaveLength(0);
   });
+
+  it('creates a new plan and clears history state', () => {
+    store.getState().setPlanName('Before Reset');
+    const newPlanId = store.getState().createNewPlan('Fresh Plan');
+
+    const state = store.getState();
+    expect(newPlanId).toBeTruthy();
+    expect(state.plan.id).toBe(newPlanId);
+    expect(state.plan.name).toBe('Fresh Plan');
+    expect(state.plan.stamps).toHaveLength(0);
+    expect(state.plan.elements).toHaveLength(1);
+    expect(state.ui.activeTool).toBe('select');
+    expect(state.ui.selection.selectedStampId).toBeNull();
+    expect(state.history.past).toHaveLength(0);
+    expect(state.history.future).toHaveLength(0);
+  });
+
+  it('loads a plan and resets selection and history', () => {
+    store.getState().setPlanName('Before Load');
+    const loadedPlan = {
+      id: 'plan-loaded',
+      name: 'Loaded Plan',
+      backgroundImage: 'data:image/png;base64,abc',
+      elements: [
+        {
+          id: 'element-loaded',
+          name: 'Loaded Shrub',
+          shapeId: 'shrub' as const,
+          color: 'Dark Green' as const,
+          scale: 1.4,
+        },
+      ],
+      stamps: [
+        {
+          id: 'stamp-loaded',
+          elementId: 'element-loaded',
+          x: 210,
+          y: 180,
+          zIndex: 1,
+        },
+      ],
+      viewport: {
+        zoom: 1.3,
+        panX: 12,
+        panY: -8,
+      },
+    };
+
+    store.getState().loadPlan(loadedPlan);
+
+    const state = store.getState();
+    expect(state.plan).toEqual(loadedPlan);
+    expect(state.ui.selectedElementId).toBe('element-loaded');
+    expect(state.ui.selection.selectedStampId).toBeNull();
+    expect(state.ui.selection.resizeMode).toBe(false);
+    expect(state.history.past).toHaveLength(0);
+    expect(state.history.future).toHaveLength(0);
+  });
 });

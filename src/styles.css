@@ -23,6 +23,10 @@ body {
   background: linear-gradient(180deg, #f6f9f4 0%, #e7efe2 100%);
 }
 
+.app-shell > * {
+  min-width: 0;
+}
+
 .left-toolbar {
   display: flex;
   flex-direction: column;
@@ -278,6 +282,12 @@ body {
   align-items: center;
 }
 
+.plan-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .panel-section {
   display: grid;
   gap: 10px;
@@ -301,6 +311,8 @@ body {
   border-radius: 8px;
   padding: 8px;
   font-size: 0.9rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .panel-action {
@@ -347,6 +359,32 @@ body {
   margin: 0;
   font-size: 0.85rem;
   color: #4d6653;
+}
+
+.saved-plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.saved-plan-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #d0ddd0;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 0.8rem;
+  color: #35533c;
+  background: #f8fbf7;
+}
+
+.saved-plan-item.active {
+  border-color: #7fa07a;
+  background: #ebf5e8;
+  color: #1f3f27;
 }
 
 .form-grid {
@@ -449,6 +487,31 @@ body {
   font-weight: 700;
 }
 
+.plan-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 12;
+  max-width: min(340px, calc(100% - 32px));
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  border: 1px solid transparent;
+  box-shadow: 0 10px 24px rgba(18, 33, 22, 0.15);
+}
+
+.plan-toast.success {
+  background: #eef8ea;
+  border-color: #8db085;
+  color: #22412a;
+}
+
+.plan-toast.error {
+  background: #fff1f1;
+  border-color: #c98989;
+  color: #702a2a;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -465,6 +528,10 @@ body {
 
   .toolbar-group {
     min-width: 150px;
+  }
+
+  .plan-actions-grid {
+    grid-template-columns: 1fr;
   }
 
   .right-panel {
