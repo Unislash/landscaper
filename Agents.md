@@ -1,0 +1,1 @@
+Whenever you add a feature or change a behavior of the application, please update the ProjectPlan.md file with information about the change that is succinct but also complete.
