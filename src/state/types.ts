@@ -17,6 +17,13 @@ export const SHAPE_OPTIONS = [
   'plant12_bright_radial_dense',
   'plant13_lime_leafy',
   'plant14_lime_leafy_alt',
+  'bush-leafy1',
+  'bush-scratchy1',
+  'bush-scratchy2',
+  'bush-scratchy3',
+  'grass1',
+  'plant-leaves1',
+  'plant-leaves2',
 ] as const;
 export type ShapeId = (typeof SHAPE_OPTIONS)[number];
 

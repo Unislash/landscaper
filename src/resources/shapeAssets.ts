@@ -14,6 +14,13 @@ import plant11 from './plant11_bright_radial.svg?raw';
 import plant12 from './plant12_bright_radial_dense.svg?raw';
 import plant13 from './plant13_lime_leafy.svg?raw';
 import plant14 from './plant14_lime_leafy_alt.svg?raw';
+import bushLeafy1 from './bush-leafy1.svg?raw';
+import bushScratchy1 from './bush-scratchy1.svg?raw';
+import bushScratchy2 from './bush-scratchy2.svg?raw';
+import bushScratchy3 from './bush-scratchy3.svg?raw';
+import grass1 from './grass1.svg?raw';
+import plantLeaves1 from './plant-leaves1.svg?raw';
+import plantLeaves2 from './plant-leaves2.svg?raw';
 
 export const SHAPE_SVGS = {
   plant01_big_leaf_dark: plant01,
@@ -30,4 +37,11 @@ export const SHAPE_SVGS = {
   plant12_bright_radial_dense: plant12,
   plant13_lime_leafy: plant13,
   plant14_lime_leafy_alt: plant14,
+  'bush-leafy1': bushLeafy1,
+  'bush-scratchy1': bushScratchy1,
+  'bush-scratchy2': bushScratchy2,
+  'bush-scratchy3': bushScratchy3,
+  grass1,
+  'plant-leaves1': plantLeaves1,
+  'plant-leaves2': plantLeaves2,
 } satisfies Record<ShapeId, string>;

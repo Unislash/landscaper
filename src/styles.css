@@ -600,7 +600,7 @@ body {
 }
 
 .shape-modal {
-  width: min(440px, 100%);
+  width: max(440px, 40vw);
   border-radius: 14px;
   padding: 16px;
   border: 1px solid #8ba085;
@@ -663,8 +663,11 @@ body {
 
 .shape-option-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  max-height: max(420px, 70vh);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .shape-option {
@@ -673,7 +676,7 @@ body {
   justify-content: center;
   text-align: center;
   padding: 10px;
-  min-height: 96px;
+  min-height: 110px;
   text-transform: none;
 }
 
