@@ -59,7 +59,7 @@ export const COLOR_OPTIONS = [
 ] as const;
 export type ElementColor = (typeof COLOR_OPTIONS)[number];
 
-export type ToolMode = 'select' | 'stamp';
+export type ToolMode = 'select' | 'stamp' | 'background';
 
 export interface Viewport {
   zoom: number;
@@ -87,6 +87,15 @@ export interface Plan {
   id: string;
   name: string;
   backgroundImage: string | null;
+  backgroundImageSize: {
+    width: number;
+    height: number;
+  } | null;
+  backgroundTransform: {
+    x: number;
+    y: number;
+    scale: number;
+  } | null;
   elements: PlanElement[];
   stamps: Stamp[];
   viewport: Viewport;
@@ -131,7 +140,15 @@ export interface PlanMutations {
   createNewPlan: (name?: string) => string;
   loadPlan: (plan: Plan) => void;
   setPlanName: (name: string) => void;
-  setBackgroundImage: (backgroundImage: string | null) => void;
+  setBackgroundImage: (
+    backgroundImage: string | null,
+    options?: {
+      size?: Plan['backgroundImageSize'];
+      transform?: Plan['backgroundTransform'];
+    },
+  ) => void;
+  setBackgroundImageSize: (size: Plan['backgroundImageSize']) => void;
+  setBackgroundTransform: (transform: Plan['backgroundTransform']) => void;
   setViewport: (viewport: Partial<Viewport>) => void;
 }
 

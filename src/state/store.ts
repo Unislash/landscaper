@@ -38,6 +38,8 @@ const createPlan = (id: string, name = 'Untitled Plan'): Plan => ({
   id,
   name,
   backgroundImage: null,
+  backgroundImageSize: null,
+  backgroundTransform: null,
   elements: [buildSeededElement()],
   stamps: [],
   viewport: {
@@ -58,6 +60,8 @@ const clonePlan = (plan: Plan): Plan => ({
   ...plan,
   elements: cloneElements(plan.elements),
   stamps: cloneStamps(plan.stamps),
+  backgroundImageSize: plan.backgroundImageSize ?? null,
+  backgroundTransform: plan.backgroundTransform ?? null,
   viewport: { ...plan.viewport },
 });
 
@@ -206,7 +210,7 @@ const storeCreator: StateCreator<LandscaperStore> = (set) => ({
       'plan/setName',
     ),
 
-  setBackgroundImage: (backgroundImage) =>
+  setBackgroundImage: (backgroundImage, options) =>
     set(
       (state) => ({
         ...state,
@@ -214,10 +218,44 @@ const storeCreator: StateCreator<LandscaperStore> = (set) => ({
         plan: {
           ...state.plan,
           backgroundImage,
+          backgroundImageSize:
+            backgroundImage === null
+              ? null
+              : options?.size ?? state.plan.backgroundImageSize,
+          backgroundTransform:
+            backgroundImage === null
+              ? null
+              : options?.transform ?? state.plan.backgroundTransform,
         },
       }),
       false,
       'plan/setBackgroundImage',
+    ),
+
+  setBackgroundImageSize: (size) =>
+    set(
+      (state) => ({
+        ...state,
+        plan: {
+          ...state.plan,
+          backgroundImageSize: size,
+        },
+      }),
+      false,
+      'plan/setBackgroundImageSize',
+    ),
+
+  setBackgroundTransform: (transform) =>
+    set(
+      (state) => ({
+        ...state,
+        plan: {
+          ...state.plan,
+          backgroundTransform: transform,
+        },
+      }),
+      false,
+      'plan/setBackgroundTransform',
     ),
 
   setViewport: (viewport) =>

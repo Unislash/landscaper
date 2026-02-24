@@ -39,6 +39,8 @@ const clonePlan = (plan: Plan): Plan => ({
   ...plan,
   elements: cloneElements(plan.elements),
   stamps: cloneStamps(plan.stamps),
+  backgroundImageSize: plan.backgroundImageSize ?? null,
+  backgroundTransform: plan.backgroundTransform ?? null,
   viewport: { ...plan.viewport },
 });
 
@@ -71,10 +73,27 @@ const isPlanShape = (value: unknown): value is Plan => {
     return false;
   }
 
+  const hasBackgroundSize =
+    value.backgroundImageSize === undefined ||
+    value.backgroundImageSize === null ||
+    (isNonNullObject(value.backgroundImageSize) &&
+      typeof value.backgroundImageSize.width === 'number' &&
+      typeof value.backgroundImageSize.height === 'number');
+
+  const hasBackgroundTransform =
+    value.backgroundTransform === undefined ||
+    value.backgroundTransform === null ||
+    (isNonNullObject(value.backgroundTransform) &&
+      typeof value.backgroundTransform.x === 'number' &&
+      typeof value.backgroundTransform.y === 'number' &&
+      typeof value.backgroundTransform.scale === 'number');
+
   return (
     typeof value.id === 'string' &&
     typeof value.name === 'string' &&
     (typeof value.backgroundImage === 'string' || value.backgroundImage === null) &&
+    hasBackgroundSize &&
+    hasBackgroundTransform &&
     Array.isArray(value.elements) &&
     Array.isArray(value.stamps) &&
     isNonNullObject(value.viewport) &&

@@ -38,7 +38,14 @@ const toolButtons = [
 const STAMP_BASE_SIZE = 56;
 const STAMP_MIN_SCALE = 0.2;
 const STAMP_MAX_SCALE = 6;
-const CANVAS_CENTER_FALLBACK = { x: 320, y: 260 };
+const BACKGROUND_MIN_SCALE = 0.2;
+const BACKGROUND_MAX_SCALE = 6;
+const CANVAS_WORKSPACE_WIDTH = 4800;
+const CANVAS_WORKSPACE_HEIGHT = 3000;
+const CANVAS_CENTER_FALLBACK = {
+  x: CANVAS_WORKSPACE_WIDTH / 2,
+  y: CANVAS_WORKSPACE_HEIGHT / 2,
+};
 const MIN_CANVAS_ZOOM = 0.4;
 const MAX_CANVAS_ZOOM = 2.6;
 
@@ -66,6 +73,31 @@ interface ResizeState {
   centerY: number;
   initialScale: number;
   previewScale: number;
+}
+
+interface PanState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startPanX: number;
+  startPanY: number;
+}
+
+interface BackgroundDragState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startCenterX: number;
+  startCenterY: number;
+  startScale: number;
+}
+
+interface BackgroundResizeState {
+  pointerId: number;
+  centerX: number;
+  centerY: number;
+  startDistance: number;
+  startScale: number;
 }
 
 interface PlanNotice {
@@ -256,15 +288,21 @@ function App() {
   const zoomTimeoutRef = useRef<number | null>(null);
   const previousToolRef = useRef<ToolMode | null>(null);
   const shiftSelectActiveRef = useRef(false);
+  const isSpacePressedRef = useRef(false);
+  const centeredPlanRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
 
   const plan = useLandscaperStore((state) => state.plan);
   const planName = useLandscaperStore((state) => state.plan.name);
   const backgroundImage = useLandscaperStore((state) => state.plan.backgroundImage);
+  const backgroundImageSize = useLandscaperStore((state) => state.plan.backgroundImageSize);
+  const backgroundTransform = useLandscaperStore((state) => state.plan.backgroundTransform);
   const createNewPlan = useLandscaperStore((state) => state.createNewPlan);
   const loadPlan = useLandscaperStore((state) => state.loadPlan);
   const setPlanName = useLandscaperStore((state) => state.setPlanName);
   const setBackgroundImage = useLandscaperStore((state) => state.setBackgroundImage);
+  const setBackgroundImageSize = useLandscaperStore((state) => state.setBackgroundImageSize);
+  const setBackgroundTransform = useLandscaperStore((state) => state.setBackgroundTransform);
   const viewport = useLandscaperStore((state) => state.plan.viewport);
   const setViewport = useLandscaperStore((state) => state.setViewport);
   const activeTool = useLandscaperStore((state) => state.ui.activeTool);
@@ -298,9 +336,17 @@ function App() {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
+  const [panState, setPanState] = useState<PanState | null>(null);
+  const [backgroundDragState, setBackgroundDragState] = useState<BackgroundDragState | null>(
+    null,
+  );
+  const [backgroundResizeState, setBackgroundResizeState] =
+    useState<BackgroundResizeState | null>(null);
   const [isLoadPlanOpen, setIsLoadPlanOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [savedPlans, setSavedPlans] = useState<SavedPlanSummary[]>([]);
   const [selectedSavedPlanId, setSelectedSavedPlanId] = useState<string | null>(null);
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [, setShapeBitmapVersion] = useState(0);
   const paletteSignature = Object.values(colorToHex).join('|');
 
@@ -426,6 +472,40 @@ function App() {
     [viewport.panX, viewport.panY, viewport.zoom],
   );
 
+  const getPanLimits = useCallback((zoom: number) => {
+    const surfaceRect = canvasSurfaceRef.current?.getBoundingClientRect();
+    if (!surfaceRect) {
+      return null;
+    }
+
+    const scaledWidth = CANVAS_WORKSPACE_WIDTH * zoom;
+    const scaledHeight = CANVAS_WORKSPACE_HEIGHT * zoom;
+    const extraX = surfaceRect.width - scaledWidth;
+    const extraY = surfaceRect.height - scaledHeight;
+
+    const minX = extraX >= 0 ? extraX / 2 : extraX;
+    const maxX = extraX >= 0 ? extraX / 2 : 0;
+    const minY = extraY >= 0 ? extraY / 2 : extraY;
+    const maxY = extraY >= 0 ? extraY / 2 : 0;
+
+    return { minX, maxX, minY, maxY };
+  }, []);
+
+  const getCenteredPan = useCallback(
+    (zoom: number) => {
+      const surfaceRect = canvasSurfaceRef.current?.getBoundingClientRect();
+      if (!surfaceRect) {
+        return null;
+      }
+
+      return {
+        panX: (surfaceRect.width - CANVAS_WORKSPACE_WIDTH * zoom) / 2,
+        panY: (surfaceRect.height - CANVAS_WORKSPACE_HEIGHT * zoom) / 2,
+      };
+    },
+    [],
+  );
+
   const getCanvasPoint = useCallback((clientX: number, clientY: number) => {
     const surfaceRect = canvasSurfaceRef.current?.getBoundingClientRect();
     if (!surfaceRect) {
@@ -433,8 +513,8 @@ function App() {
     }
 
     const zoom = viewport.zoom > 0 ? viewport.zoom : 1;
-    const width = surfaceRect.width / zoom;
-    const height = surfaceRect.height / zoom;
+    const width = CANVAS_WORKSPACE_WIDTH;
+    const height = CANVAS_WORKSPACE_HEIGHT;
 
     return {
       x: clamp((clientX - surfaceRect.left - viewport.panX) / zoom, 0, width),
@@ -451,8 +531,8 @@ function App() {
     }
 
     const zoom = viewport.zoom > 0 ? viewport.zoom : 1;
-    const width = surfaceRect.width / zoom;
-    const height = surfaceRect.height / zoom;
+    const width = CANVAS_WORKSPACE_WIDTH;
+    const height = CANVAS_WORKSPACE_HEIGHT;
 
     return {
       x: clamp((surfaceRect.width / 2 - viewport.panX) / zoom, 0, width),
@@ -594,6 +674,48 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (isSpacePressedRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      isSpacePressedRef.current = true;
+      setIsSpacePressed(true);
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') {
+        return;
+      }
+
+      isSpacePressedRef.current = false;
+      setIsSpacePressed(false);
+      setPanState(null);
+    };
+
+    const handleBlur = () => {
+      isSpacePressedRef.current = false;
+      setIsSpacePressed(false);
+      setPanState(null);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Shift' || isEditableTarget(event.target)) {
         return;
       }
@@ -642,6 +764,144 @@ function App() {
   }, [activeTool, setActiveTool]);
 
   useEffect(() => {
+    if (!panState) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== panState.pointerId) {
+        return;
+      }
+
+      const deltaX = event.clientX - panState.startX;
+      const deltaY = event.clientY - panState.startY;
+      const limits = getPanLimits(viewport.zoom);
+      const nextPanX = panState.startPanX + deltaX;
+      const nextPanY = panState.startPanY + deltaY;
+      setViewport({
+        panX: limits ? clamp(nextPanX, limits.minX, limits.maxX) : nextPanX,
+        panY: limits ? clamp(nextPanY, limits.minY, limits.maxY) : nextPanY,
+      });
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (event.pointerId !== panState.pointerId) {
+        return;
+      }
+
+      if (canvasSurfaceRef.current?.hasPointerCapture(event.pointerId)) {
+        canvasSurfaceRef.current.releasePointerCapture(event.pointerId);
+      }
+      setPanState(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [getPanLimits, panState, setViewport, viewport.zoom]);
+
+  useEffect(() => {
+    if (!backgroundDragState) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== backgroundDragState.pointerId) {
+        return;
+      }
+
+      const deltaX = (event.clientX - backgroundDragState.startX) / viewport.zoom;
+      const deltaY = (event.clientY - backgroundDragState.startY) / viewport.zoom;
+      setBackgroundTransform({
+        x: backgroundDragState.startCenterX + deltaX,
+        y: backgroundDragState.startCenterY + deltaY,
+        scale: backgroundDragState.startScale,
+      });
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (event.pointerId !== backgroundDragState.pointerId) {
+        return;
+      }
+
+      if (canvasSurfaceRef.current?.hasPointerCapture(event.pointerId)) {
+        canvasSurfaceRef.current.releasePointerCapture(event.pointerId);
+      }
+      setBackgroundDragState(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [backgroundDragState, setBackgroundTransform, viewport.zoom]);
+
+  useEffect(() => {
+    if (!backgroundResizeState) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== backgroundResizeState.pointerId) {
+        return;
+      }
+
+      const point = getCanvasPoint(event.clientX, event.clientY);
+      if (!point) {
+        return;
+      }
+
+      const distance = Math.max(
+        1,
+        Math.hypot(point.x - backgroundResizeState.centerX, point.y - backgroundResizeState.centerY),
+      );
+      const scale = clamp(
+        backgroundResizeState.startScale * (distance / backgroundResizeState.startDistance),
+        BACKGROUND_MIN_SCALE,
+        BACKGROUND_MAX_SCALE,
+      );
+
+      setBackgroundTransform({
+        x: backgroundResizeState.centerX,
+        y: backgroundResizeState.centerY,
+        scale,
+      });
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (event.pointerId !== backgroundResizeState.pointerId) {
+        return;
+      }
+
+      if (canvasSurfaceRef.current?.hasPointerCapture(event.pointerId)) {
+        canvasSurfaceRef.current.releasePointerCapture(event.pointerId);
+      }
+      setBackgroundResizeState(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [backgroundResizeState, getCanvasPoint, setBackgroundTransform]);
+
+  useEffect(() => {
     const persistedPlans = readPersistedPlans();
     const activePlanId = persistedPlans.activePlanId ?? persistedPlans.plans[0]?.plan.id ?? null;
 
@@ -654,6 +914,30 @@ function App() {
 
     setIsHydrated(true);
   }, [loadPlan]);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    if (centeredPlanRef.current === plan.id) {
+      return;
+    }
+
+    const isDefaultViewport =
+      viewport.panX === 0 && viewport.panY === 0 && viewport.zoom === 1;
+    if (!isDefaultViewport) {
+      centeredPlanRef.current = plan.id;
+      return;
+    }
+
+    const centered = getCenteredPan(viewport.zoom);
+    if (centered) {
+      setViewport(centered);
+    }
+
+    centeredPlanRef.current = plan.id;
+  }, [getCenteredPan, isHydrated, plan.id, setViewport, viewport.panX, viewport.panY, viewport.zoom]);
 
   useEffect(() => {
     if (!planNotice) {
@@ -722,8 +1006,22 @@ function App() {
 
     try {
       const nextBackgroundImage = await readFileAsDataUrl(nextFile);
-      setBackgroundImage(nextBackgroundImage);
-      setBackgroundUploadError(null);
+      const image = new Image();
+      image.onload = () => {
+        const size = {
+          width: image.naturalWidth || image.width,
+          height: image.naturalHeight || image.height,
+        };
+        setBackgroundImage(nextBackgroundImage, {
+          size,
+          transform: getDefaultBackgroundTransform(),
+        });
+        setBackgroundUploadError(null);
+      };
+      image.onerror = () => {
+        setBackgroundUploadError('Unable to read image data.');
+      };
+      image.src = nextBackgroundImage;
     } catch {
       setBackgroundUploadError('Unable to read image data.');
     }
@@ -804,7 +1102,92 @@ function App() {
     openLoadPlanModal();
   };
 
+  const handleCloseHelp = () => {
+    setIsHelpOpen(false);
+  };
+
+  const getDefaultBackgroundTransform = useCallback(
+    () => ({
+      x: CANVAS_WORKSPACE_WIDTH / 2,
+      y: CANVAS_WORKSPACE_HEIGHT / 2,
+      scale: 1,
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    if (!backgroundImage || backgroundImageSize) {
+      return;
+    }
+
+    const image = new Image();
+    image.onload = () => {
+      const size = {
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+      };
+      setBackgroundImageSize(size);
+      if (!backgroundTransform) {
+        setBackgroundTransform(getDefaultBackgroundTransform());
+      }
+    };
+    image.onerror = () => {
+      setBackgroundUploadError('Unable to read image data.');
+    };
+    image.src = backgroundImage;
+  }, [
+    backgroundImage,
+    backgroundImageSize,
+    backgroundTransform,
+    getDefaultBackgroundTransform,
+    setBackgroundImageSize,
+    setBackgroundTransform,
+  ]);
+
+  useEffect(() => {
+    if (backgroundImage && backgroundImageSize && !backgroundTransform) {
+      setBackgroundTransform(getDefaultBackgroundTransform());
+    }
+  }, [
+    backgroundImage,
+    backgroundImageSize,
+    backgroundTransform,
+    getDefaultBackgroundTransform,
+    setBackgroundTransform,
+  ]);
+
   const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (isSpacePressedRef.current && event.button === 0) {
+      event.preventDefault();
+      canvasSurfaceRef.current?.setPointerCapture(event.pointerId);
+      setPanState({
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startPanX: viewport.panX,
+        startPanY: viewport.panY,
+      });
+      return;
+    }
+
+    if (activeTool === 'background') {
+      if (!backgroundImage || !backgroundTransform) {
+        return;
+      }
+
+      event.preventDefault();
+      canvasSurfaceRef.current?.setPointerCapture(event.pointerId);
+      setBackgroundDragState({
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startCenterX: backgroundTransform.x,
+        startCenterY: backgroundTransform.y,
+        startScale: backgroundTransform.scale,
+      });
+      return;
+    }
+
     const point = getCanvasPoint(event.clientX, event.clientY);
     if (!point) {
       return;
@@ -835,10 +1218,6 @@ function App() {
   };
 
   const handleCanvasWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    if (!event.shiftKey) {
-      return;
-    }
-
     event.preventDefault();
 
     const zoomDelta = -event.deltaY * 0.0015;
@@ -847,8 +1226,26 @@ function App() {
       return;
     }
 
+    const surfaceRect = canvasSurfaceRef.current?.getBoundingClientRect();
+    if (!surfaceRect) {
+      return;
+    }
+
+    const cursorX = event.clientX - surfaceRect.left;
+    const cursorY = event.clientY - surfaceRect.top;
+    const worldX = (cursorX - viewport.panX) / viewport.zoom;
+    const worldY = (cursorY - viewport.panY) / viewport.zoom;
+
+    const desiredPanX = cursorX - worldX * nextZoom;
+    const desiredPanY = cursorY - worldY * nextZoom;
+    const limits = getPanLimits(nextZoom);
+    const nextPanX = limits ? clamp(desiredPanX, limits.minX, limits.maxX) : desiredPanX;
+    const nextPanY = limits ? clamp(desiredPanY, limits.minY, limits.maxY) : desiredPanY;
+
     setViewport({
       zoom: Number(nextZoom.toFixed(3)),
+      panX: nextPanX,
+      panY: nextPanY,
     });
 
     setIsZoomIndicatorVisible(true);
@@ -864,6 +1261,10 @@ function App() {
     event: ReactPointerEvent<HTMLButtonElement>,
     stamp: Stamp,
   ) => {
+    if (isSpacePressedRef.current) {
+      return;
+    }
+
     if (activeTool !== 'select') {
       return;
     }
@@ -908,6 +1309,10 @@ function App() {
     element: PlanElement,
     handle: ResizeHandle,
   ) => {
+    if (isSpacePressedRef.current) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
@@ -923,6 +1328,39 @@ function App() {
       centerY: stamp.y,
       initialScale: element.scale,
       previewScale: element.scale,
+    });
+  };
+
+  const handleBackgroundResizePointerDown = (
+    event: ReactPointerEvent<HTMLSpanElement>,
+  ) => {
+    if (!backgroundTransform || !backgroundImageSize) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const point = getCanvasPoint(event.clientX, event.clientY);
+    if (!point) {
+      return;
+    }
+
+    canvasSurfaceRef.current?.setPointerCapture(event.pointerId);
+
+    const centerX = backgroundTransform.x;
+    const centerY = backgroundTransform.y;
+    const startDistance = Math.max(
+      1,
+      Math.hypot(point.x - centerX, point.y - centerY),
+    );
+
+    setBackgroundResizeState({
+      pointerId: event.pointerId,
+      centerX,
+      centerY,
+      startDistance,
+      startScale: backgroundTransform.scale,
     });
   };
 
@@ -1055,6 +1493,28 @@ function App() {
   const selectedStampSize = selectedStampScale ? selectedStampScale * STAMP_BASE_SIZE : null;
   const selectedElementName = selectedElement?.name ?? 'None';
   const backgroundUploadLabel = backgroundImage ? 'Choose new background image' : 'choose file';
+  const backgroundBox = useMemo(() => {
+    if (!backgroundImage || !backgroundImageSize || !backgroundTransform) {
+      return null;
+    }
+
+    const width = backgroundImageSize.width * backgroundTransform.scale;
+    const height = backgroundImageSize.height * backgroundTransform.scale;
+    return {
+      width,
+      height,
+      left: backgroundTransform.x - width / 2,
+      top: backgroundTransform.y - height / 2,
+    };
+  }, [backgroundImage, backgroundImageSize, backgroundTransform]);
+  const canvasHintText =
+    activeTool === 'stamp'
+      ? 'Stamp tool active: click anywhere in the canvas to place the selected element.'
+      : resizeMode
+        ? 'Resize mode active: drag the edge handles to scale the selected stamp from center.'
+        : activeTool === 'select'
+          ? 'Select tool active: click a stamp to select and drag it.'
+          : '';
 
   return (
       <div className="app-shell">
@@ -1122,17 +1582,34 @@ function App() {
                       Resize Element
                   </button>
               </div>
+              <div className="toolbar-group toolbar-group-bottom">
+                  <button
+                      type="button"
+                      className="tool-button help-button"
+                      onClick={() => setIsHelpOpen(true)}
+                      aria-label="Open keyboard shortcuts"
+                      title="Shortcuts & navigation"
+                  >
+                      ?
+                  </button>
+              </div>
           </aside>
 
           <main className="editor-area">
               <section className="canvas-region" aria-label="Canvas area">
                   <div
                       ref={canvasSurfaceRef}
-                      className={
-                          activeTool === "stamp"
-                              ? "canvas-surface stamp-mode-surface"
-                              : "canvas-surface"
-                      }
+                      className={[
+                          "canvas-surface",
+                          activeTool === "stamp" ? "stamp-mode-surface" : "",
+                          activeTool === "background"
+                              ? "background-mode-surface"
+                              : "",
+                          isSpacePressed ? "pan-mode-surface" : "",
+                          panState ? "panning" : "",
+                      ]
+                          .filter(Boolean)
+                          .join(" ")}
                       onPointerDown={handleCanvasPointerDown}
                       onWheel={handleCanvasWheel}
                   >
@@ -1140,30 +1617,77 @@ function App() {
                           className="canvas-viewport"
                           style={viewportTransformStyle}
                       >
-                          {backgroundImage ? (
-                              <img
-                                  src={backgroundImage}
-                                  alt="Plan background"
-                                  className="canvas-background-image"
-                              />
-                          ) : (
-                              <p className="canvas-empty-state">
-                                  Upload a background image (under{" "}
-                                  {BACKGROUND_IMAGE_MAX_MB}MB) to start your
-                                  layout.
-                              </p>
-                          )}
                           <div
-                              className={
-                                  activeTool === "stamp"
-                                      ? "stamp-layer stamp-layer-disabled"
-                                      : "stamp-layer"
+                              className="canvas-sheet"
+                              style={
+                                  {
+                                      width: `${CANVAS_WORKSPACE_WIDTH}px`,
+                                      height: `${CANVAS_WORKSPACE_HEIGHT}px`,
+                                  } as CSSProperties
                               }
                           >
-                              {sortedStamps.map((stamp) => {
-                                  const stampElementDefinition =
-                                      elementsById.get(stamp.elementId);
-                                  if (!stampElementDefinition) {
+                              {backgroundImage && backgroundBox ? (
+                                  <>
+                                      <img
+                                          src={backgroundImage}
+                                          alt="Plan background"
+                                          className="canvas-background-image"
+                                          style={
+                                              {
+                                                  width: `${backgroundBox.width}px`,
+                                                  height: `${backgroundBox.height}px`,
+                                                  left: `${backgroundBox.left}px`,
+                                                  top: `${backgroundBox.top}px`,
+                                              } as CSSProperties
+                                          }
+                                      />
+                                      {activeTool === "background" ? (
+                                          <div
+                                              className="background-selection"
+                                              style={
+                                                  {
+                                                      width: `${backgroundBox.width}px`,
+                                                      height: `${backgroundBox.height}px`,
+                                                      left: `${backgroundBox.left}px`,
+                                                      top: `${backgroundBox.top}px`,
+                                                  } as CSSProperties
+                                              }
+                                          >
+                                              {[
+                                                  "top-left",
+                                                  "top-right",
+                                                  "bottom-right",
+                                                  "bottom-left",
+                                              ].map((position) => (
+                                                  <span
+                                                      key={position}
+                                                      className={`background-handle handle-${position}`}
+                                                      onPointerDown={
+                                                          handleBackgroundResizePointerDown
+                                                      }
+                                                  />
+                                              ))}
+                                          </div>
+                                      ) : null}
+                                  </>
+                              ) : (
+                                  <p className="canvas-empty-state">
+                                      Upload a background image (under{" "}
+                                      {BACKGROUND_IMAGE_MAX_MB}MB) to start your
+                                      layout.
+                                  </p>
+                              )}
+                              <div
+                                  className={
+                                      activeTool === "select"
+                                          ? "stamp-layer"
+                                          : "stamp-layer stamp-layer-disabled"
+                                  }
+                              >
+                                  {sortedStamps.map((stamp) => {
+                                      const stampElementDefinition =
+                                          elementsById.get(stamp.elementId);
+                                      if (!stampElementDefinition) {
                                       return null;
                                   }
 
@@ -1256,15 +1780,12 @@ function App() {
                                       </button>
                                   );
                               })}
+                              </div>
                           </div>
                       </div>
                       <p className="canvas-hint" role="status">
-                          {activeTool === "stamp"
-                              ? "Stamp tool active: click anywhere in the canvas to place the selected element."
-                              : resizeMode
-                                ? "Resize mode active: drag the edge handles to scale the selected stamp from center."
-                                : "Select tool active: click a stamp to select and drag it."}{" "}
-                          Shift+Scroll zooms the canvas.
+                          {canvasHintText ? <span>{canvasHintText}</span> : null}
+                          <span>Scroll to zoom. Hold Space and drag to pan.</span>
                       </p>
                       <div
                           className={
@@ -1370,6 +1891,18 @@ function App() {
                               {backgroundUploadLabel}
                           </button>
                       </label>
+                      <button
+                          type="button"
+                          className={
+                              activeTool === "background"
+                                  ? "tool-button panel-action active"
+                                  : "tool-button panel-action"
+                          }
+                          onClick={() => setActiveTool("background")}
+                          disabled={!backgroundImage}
+                      >
+                          Resize
+                      </button>
                   </div>
                   {backgroundUploadError ? (
                       <p className="error-note" role="status">
@@ -1659,6 +2192,89 @@ function App() {
                               onClick={handleCloseLoadPlan}
                           >
                               Cancel
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          ) : null}
+
+          {isHelpOpen ? (
+              <div
+                  className="modal-backdrop"
+                  role="presentation"
+                  onClick={handleCloseHelp}
+              >
+                  <div
+                      className="help-modal"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label="Shortcuts and navigation"
+                      onClick={(event) => event.stopPropagation()}
+                  >
+                      <h2>Shortcuts & Navigation</h2>
+                      <table className="hotkey-table">
+                          <thead>
+                              <tr>
+                                  <th>Shortcut</th>
+                                  <th>Action</th>
+                              </tr>
+                          </thead>
+                          <tbody>
+                              <tr>
+                                  <td>Scroll (on canvas)</td>
+                                  <td>Zoom in/out</td>
+                              </tr>
+                              <tr>
+                                  <td>Space + Drag</td>
+                                  <td>Pan the canvas</td>
+                              </tr>
+                              <tr>
+                                  <td>Shift (hold)</td>
+                                  <td>Temporarily switch to Select tool</td>
+                              </tr>
+                              <tr>
+                                  <td>Alt + Drag</td>
+                                  <td>Duplicate a stamp while dragging</td>
+                              </tr>
+                              <tr>
+                                  <td>Backspace / Delete</td>
+                                  <td>Remove selected stamp</td>
+                              </tr>
+                              <tr>
+                                  <td>Escape</td>
+                                  <td>Exit resize mode</td>
+                              </tr>
+                              <tr>
+                                  <td>Ctrl/Cmd + Z</td>
+                                  <td>Undo</td>
+                              </tr>
+                              <tr>
+                                  <td>Ctrl/Cmd + Shift + Z or Y</td>
+                                  <td>Redo</td>
+                              </tr>
+                          </tbody>
+                      </table>
+                      <div className="help-notes">
+                          <p>
+                              Stamp tool: click the canvas to place the selected
+                              element.
+                          </p>
+                          <p>
+                              Select tool: click a stamp to select, drag to
+                              move, and use resize handles to scale.
+                          </p>
+                          <p>
+                              Background tool: drag to move the background image
+                              and use the corner handles to resize it.
+                          </p>
+                      </div>
+                      <div className="modal-actions">
+                          <button
+                              type="button"
+                              className="tool-button panel-action"
+                              onClick={handleCloseHelp}
+                          >
+                              Close
                           </button>
                       </div>
                   </div>

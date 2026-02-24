@@ -266,6 +266,8 @@ describe('landscaper store foundation', () => {
       id: 'plan-loaded',
       name: 'Loaded Plan',
       backgroundImage: 'data:image/png;base64,abc',
+      backgroundImageSize: { width: 640, height: 480 },
+      backgroundTransform: { x: 1600, y: 1000, scale: 1 },
       elements: [
         {
           id: 'element-loaded',

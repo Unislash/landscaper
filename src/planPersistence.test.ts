@@ -25,6 +25,8 @@ const createPlanFixture = (id: string, name: string): Plan => ({
   id,
   name,
   backgroundImage: null,
+  backgroundImageSize: null,
+  backgroundTransform: null,
   elements: [
     {
       id: `element-${id}`,
