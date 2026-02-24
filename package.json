@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "rsbuild dev",
     "build": "rsbuild build",
+    "generate:shapes": "node scripts/generate-shapes.mjs",
     "optimize:svgs": "node scripts/optimize-svgs.mjs",
     "test": "vitest"
   },

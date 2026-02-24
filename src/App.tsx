@@ -74,7 +74,7 @@ interface PlanNotice {
 }
 
 const colorToHex: Record<ElementColor, string> = {
-  Green: '#148f1d',
+  Green: '#568f14',
   Moss: '#4C7A5A',
   Pine: '#2E4A3A',
   Teal: '#2F4A52',
@@ -89,7 +89,7 @@ const colorToHex: Record<ElementColor, string> = {
   Lavender: '#7E6F98',
   Wheat: '#D6C768',
   Amber: '#e39b55',
-  Rose: '#D8A3B5',
+  Rose: '#dbb8c3',
   Coral: '#d96a5f',
 };
 

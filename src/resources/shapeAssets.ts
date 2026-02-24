@@ -21,6 +21,17 @@ import bushScratchy3 from './bush-scratchy3.svg?raw';
 import grass1 from './grass1.svg?raw';
 import plantLeaves1 from './plant-leaves1.svg?raw';
 import plantLeaves2 from './plant-leaves2.svg?raw';
+import bushFlowers1 from './bush-flowers1.svg?raw';
+import bushFlowers2 from './bush-flowers2.svg?raw';
+import bushFlowers3 from './bush-flowers3.svg?raw';
+import bushLeafy2 from './bush-leafy2.svg?raw';
+import flower1 from './flower1.svg?raw';
+import flower2 from './flower2.svg?raw';
+import rock1 from './rock1.svg?raw';
+import rock2 from './rock2.svg?raw';
+import rock3 from './rock3.svg?raw';
+import rock4 from './rock4.svg?raw';
+import rock5 from './rock5.svg?raw';
 
 export const SHAPE_SVGS = {
   plant01_big_leaf_dark: plant01,
@@ -41,6 +52,17 @@ export const SHAPE_SVGS = {
   'bush-scratchy1': bushScratchy1,
   'bush-scratchy2': bushScratchy2,
   'bush-scratchy3': bushScratchy3,
+  'bush-flowers1': bushFlowers1,
+  'bush-flowers2': bushFlowers2,
+  'bush-flowers3': bushFlowers3,
+  'bush-leafy2': bushLeafy2,
+  flower1,
+  flower2,
+  rock1,
+  rock2,
+  rock3,
+  rock4,
+  rock5,
   grass1,
   'plant-leaves1': plantLeaves1,
   'plant-leaves2': plantLeaves2,
