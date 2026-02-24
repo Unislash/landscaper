@@ -14,8 +14,9 @@ const resolveResourcesDir = () => {
 
 const resourcesDir = resolveResourcesDir();
 const DECIMAL_PLACES = 3;
-const MIN_PADDING = 2;
+const MIN_PADDING = 0;
 const PADDING_RATIO = 0.05;
+const EXTRA_TRIM = 1;
 const EPSILON = 1e-6;
 
 const isRenderableTag = (tag) =>
@@ -910,14 +911,32 @@ const updateSvg = (svgMarkup) => {
   }
 
   const padding = Math.max(MIN_PADDING, Math.min(width, height) * PADDING_RATIO);
-  const paddedBounds = {
+  let paddedBounds = {
     minX: bounds.minX - padding,
     minY: bounds.minY - padding,
     maxX: bounds.maxX + padding,
     maxY: bounds.maxY + padding,
   };
-  const paddedWidth = paddedBounds.maxX - paddedBounds.minX;
-  const paddedHeight = paddedBounds.maxY - paddedBounds.minY;
+  let paddedWidth = paddedBounds.maxX - paddedBounds.minX;
+  let paddedHeight = paddedBounds.maxY - paddedBounds.minY;
+
+  if (EXTRA_TRIM > 0) {
+    const inset = Math.min(
+      EXTRA_TRIM,
+      Math.max(0, (paddedWidth - EPSILON) / 2),
+      Math.max(0, (paddedHeight - EPSILON) / 2),
+    );
+    if (inset > 0) {
+      paddedBounds = {
+        minX: paddedBounds.minX + inset,
+        minY: paddedBounds.minY + inset,
+        maxX: paddedBounds.maxX - inset,
+        maxY: paddedBounds.maxY - inset,
+      };
+      paddedWidth = paddedBounds.maxX - paddedBounds.minX;
+      paddedHeight = paddedBounds.maxY - paddedBounds.minY;
+    }
+  }
 
   $svg.attr(
     'viewBox',
@@ -947,8 +966,14 @@ const run = async () => {
   }
 
   let changed = 0;
+  const skipTrimPattern = /^plant\d+/i;
 
   for (const fileName of svgFiles) {
+    if (skipTrimPattern.test(fileName)) {
+      console.log(`${fileName}: skipped (plant##)`);
+      continue;
+    }
+
     const filePath = path.join(resourcesDir, fileName);
     const original = await fs.readFile(filePath, 'utf8');
     const updated = updateSvg(original);

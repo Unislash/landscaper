@@ -125,7 +125,7 @@ const colorToHex: Record<ElementColor, string> = {
   Coral: '#d96a5f',
 };
 
-const DEFAULT_COLOR: ElementColor = 'Pine';
+const DEFAULT_COLOR: ElementColor = 'Green';
 const getColorHex = (color: ElementColor | null | undefined): string =>
   colorToHex[color ?? DEFAULT_COLOR] ?? colorToHex[DEFAULT_COLOR];
 
@@ -138,6 +138,14 @@ const createElementId = (): string => {
 };
 
 const DEFAULT_SHAPE_ID = SHAPE_OPTIONS[0];
+const getRandomShapeId = (): ShapeId => {
+  if (SHAPE_OPTIONS.length === 0) {
+    return DEFAULT_SHAPE_ID;
+  }
+
+  const index = Math.floor(Math.random() * SHAPE_OPTIONS.length);
+  return SHAPE_OPTIONS[index] ?? DEFAULT_SHAPE_ID;
+};
 
 const SHAPE_RENDER_INFO: Partial<
   Record<
@@ -159,7 +167,7 @@ let supportsColorBlendMode: boolean | null = null;
 const createDefaultElement = (elementCount: number): PlanElement => ({
   id: createElementId(),
   name: `Element ${elementCount + 1}`,
-  shapeId: DEFAULT_SHAPE_ID,
+  shapeId: getRandomShapeId(),
   color: DEFAULT_COLOR,
   scale: 1,
 });
@@ -1843,10 +1851,10 @@ function App() {
                               </div>
                           </div>
                       </div>
-                      <p className="canvas-hint" role="status">
-                          {canvasHintText ? <span>{canvasHintText}</span> : null}
-                          <span>Scroll to zoom. Hold Space and drag to pan.</span>
-                      </p>
+                      <div className="canvas-hint" role="status">
+                          {canvasHintText ? <div>{canvasHintText}</div> : null}
+                          <div>Scroll to zoom. Hold Space and drag to pan.</div>
+                      </div>
                       <div
                           className={
                               isZoomIndicatorVisible

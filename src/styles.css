@@ -228,6 +228,10 @@ body {
   outline: none;
 }
 
+.stamp-item .stamp-shape {
+  pointer-events: none;
+}
+
 .stamp-item:focus,
 .stamp-item:focus-visible {
   outline: none;
@@ -240,7 +244,7 @@ body {
 .stamp-item.selected::after {
   content: '';
   position: absolute;
-  inset: -4px;
+  inset: -2px;
   border: 2px solid var(--stamp-outline-color, #2f6140);
   border-radius: 12px;
   pointer-events: none;
