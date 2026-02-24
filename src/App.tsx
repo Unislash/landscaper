@@ -140,7 +140,15 @@ const createElementId = (): string => {
 const DEFAULT_SHAPE_ID = SHAPE_OPTIONS[0];
 
 const SHAPE_RENDER_INFO: Partial<
-  Record<ShapeId, { maskSource: string; isInline: boolean; viewBox?: { width: number; height: number } | null }>
+  Record<
+    ShapeId,
+    {
+      maskSource: string;
+      maskMarkup?: string;
+      isInline: boolean;
+      viewBox?: { width: number; height: number } | null;
+    }
+  >
 > = {};
 
 const SHAPE_BITMAP_SIZE = 256;
@@ -182,6 +190,30 @@ const parseViewBox = (svgMarkup: string): { width: number; height: number } | nu
   return { width: parts[2], height: parts[3] };
 };
 
+const stripRecolorOmit = (svgMarkup: string): string => {
+  if (!svgMarkup.includes('data-recolor-omit')) {
+    return svgMarkup;
+  }
+
+  if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') {
+    return svgMarkup;
+  }
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgMarkup, 'image/svg+xml');
+    const nodes = doc.querySelectorAll('[data-recolor-omit]');
+    if (nodes.length === 0) {
+      return svgMarkup;
+    }
+
+    nodes.forEach((node) => node.remove());
+    return new XMLSerializer().serializeToString(doc.documentElement);
+  } catch {
+    return svgMarkup;
+  }
+};
+
 const isEditableTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -204,12 +236,13 @@ const getShapeRenderInfo = (shapeId: ShapeId, svgMarkup: string) => {
 
   const trimmedMarkup = svgMarkup.trim();
   const isInline = trimmedMarkup.startsWith('<svg') || trimmedMarkup.startsWith('<?xml');
+  const maskMarkup = isInline ? stripRecolorOmit(svgMarkup) : svgMarkup;
   const maskSource = isInline
-    ? `url("data:image/svg+xml;utf8,${encodeURIComponent(svgMarkup)}")`
+    ? `url("data:image/svg+xml;utf8,${encodeURIComponent(maskMarkup)}")`
     : `url("${svgMarkup}")`;
   const viewBox = isInline ? parseViewBox(svgMarkup) : null;
 
-  const info = { maskSource, isInline, viewBox };
+  const info = { maskSource, maskMarkup, isInline, viewBox };
   SHAPE_RENDER_INFO[shapeId] = info;
   return info;
 };
@@ -251,8 +284,11 @@ const createTintedShapeBitmap = async (shapeId: ShapeId, color: string): Promise
     return null;
   }
 
-  const { isInline, viewBox } = getShapeRenderInfo(resolvedShapeId, svgMarkup);
+  const { isInline, viewBox, maskMarkup } = getShapeRenderInfo(resolvedShapeId, svgMarkup);
   const image = await loadSvgImage(svgMarkup, isInline);
+  const usesCustomMask = Boolean(maskMarkup && maskMarkup !== svgMarkup);
+  const maskImage =
+    usesCustomMask && maskMarkup ? await loadSvgImage(maskMarkup, true) : image;
   const canvas = document.createElement('canvas');
   canvas.width = SHAPE_BITMAP_SIZE;
   canvas.height = SHAPE_BITMAP_SIZE;
@@ -271,13 +307,37 @@ const createTintedShapeBitmap = async (shapeId: ShapeId, color: string): Promise
   const offsetY = (SHAPE_BITMAP_SIZE - drawHeight) / 2;
 
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
-  context.globalCompositeOperation = getBlendMode(context);
-  context.fillStyle = color;
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.globalCompositeOperation = 'destination-in';
-  context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
-  context.globalCompositeOperation = 'source-over';
+
+  if (usesCustomMask) {
+    context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+
+    const tintCanvas = document.createElement('canvas');
+    tintCanvas.width = SHAPE_BITMAP_SIZE;
+    tintCanvas.height = SHAPE_BITMAP_SIZE;
+    const tintContext = tintCanvas.getContext('2d');
+    if (!tintContext) {
+      return canvas.toDataURL('image/png');
+    }
+
+    tintContext.clearRect(0, 0, tintCanvas.width, tintCanvas.height);
+    tintContext.drawImage(maskImage, offsetX, offsetY, drawWidth, drawHeight);
+    tintContext.globalCompositeOperation = getBlendMode(tintContext);
+    tintContext.fillStyle = color;
+    tintContext.fillRect(0, 0, tintCanvas.width, tintCanvas.height);
+    tintContext.globalCompositeOperation = 'destination-in';
+    tintContext.drawImage(maskImage, offsetX, offsetY, drawWidth, drawHeight);
+    tintContext.globalCompositeOperation = 'source-over';
+
+    context.drawImage(tintCanvas, 0, 0);
+  } else {
+    context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+    context.globalCompositeOperation = getBlendMode(context);
+    context.fillStyle = color;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.globalCompositeOperation = 'destination-in';
+    context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+    context.globalCompositeOperation = 'source-over';
+  }
 
   return canvas.toDataURL('image/png');
 };
