@@ -15,6 +15,8 @@ import {
   getPersistedPlanById,
   listSavedPlanSummaries,
   readPersistedPlans,
+  deletePersistedPlan,
+  savePlanCopy,
   upsertPersistedPlan,
   type SavedPlanSummary,
 } from './planPersistence';
@@ -411,6 +413,7 @@ function App() {
   const [backgroundResizeState, setBackgroundResizeState] =
     useState<BackgroundResizeState | null>(null);
   const [isLoadPlanOpen, setIsLoadPlanOpen] = useState(false);
+  const [isDeletePlanOpen, setIsDeletePlanOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [savedPlans, setSavedPlans] = useState<SavedPlanSummary[]>([]);
   const [selectedSavedPlanId, setSelectedSavedPlanId] = useState<string | null>(null);
@@ -1117,6 +1120,60 @@ function App() {
     });
   };
 
+  const handleDuplicatePlan = () => {
+    const duplicatedPlan = savePlanCopy(plan);
+    if (!duplicatedPlan) {
+      setPlanNotice({
+        variant: 'error',
+        message: 'Unable to duplicate the plan in local storage.',
+      });
+      return;
+    }
+
+    loadPlan(duplicatedPlan);
+    setPlanNotice({
+      variant: 'success',
+      message: `Duplicated plan as "${duplicatedPlan.name}".`,
+    });
+  };
+
+  const handleOpenDeletePlan = () => {
+    setIsDeletePlanOpen(true);
+  };
+
+  const handleCloseDeletePlan = () => {
+    setIsDeletePlanOpen(false);
+  };
+
+  const handleConfirmDeletePlan = () => {
+    const result = deletePersistedPlan(plan.id);
+    if (!result) {
+      setPlanNotice({
+        variant: 'error',
+        message: 'Unable to delete the plan from local storage.',
+      });
+      setIsDeletePlanOpen(false);
+      return;
+    }
+
+    setIsDeletePlanOpen(false);
+
+    if (result.nextPlan) {
+      loadPlan(result.nextPlan);
+      setPlanNotice({
+        variant: 'success',
+        message: `Deleted "${plan.name}". Loaded "${result.nextPlan.name}".`,
+      });
+      return;
+    }
+
+    createNewPlan('Untitled Plan');
+    setPlanNotice({
+      variant: 'success',
+      message: `Deleted "${plan.name}". Created a new plan.`,
+    });
+  };
+
   const openLoadPlanModal = () => {
     const persistedPlans = readPersistedPlans();
     const summaries = listSavedPlanSummaries(persistedPlans);
@@ -1558,9 +1615,8 @@ function App() {
         ? resizeState.previewScale
         : selectedStampElement.scale
       : null;
-  const selectedStampSize = selectedStampScale ? selectedStampScale * STAMP_BASE_SIZE : null;
   const selectedElementName = selectedElement?.name ?? 'None';
-  const backgroundUploadLabel = backgroundImage ? 'Choose new background image' : 'choose file';
+  const backgroundUploadLabel = backgroundImage ? 'Change Canvas Image' : 'Choose Canvas Image';
   const backgroundBox = useMemo(() => {
     if (!backgroundImage || !backgroundImageSize || !backgroundTransform) {
       return null;
@@ -1740,7 +1796,7 @@ function App() {
                                   </>
                               ) : (
                                   <p className="canvas-empty-state">
-                                      Upload a background image (under{" "}
+                                      Upload a canvas image (under{" "}
                                       {BACKGROUND_IMAGE_MAX_MB}MB) to start your
                                       layout.
                                   </p>
@@ -1886,16 +1942,6 @@ function App() {
                               {selectedElementName}
                           </span>
                       </div>
-                      <div className="canvas-summary-item">
-                          <span className="canvas-summary-label">
-                              Selected size
-                          </span>
-                          <span className="canvas-summary-value">
-                              {selectedStampSize
-                                  ? `${selectedStampSize.toFixed(1)}px`
-                                  : "None"}
-                          </span>
-                      </div>
                   </div>
               </section>
           </main>
@@ -1908,12 +1954,23 @@ function App() {
                   <label className="field-label" htmlFor="plan-name-input">
                       Plan name
                   </label>
-                  <input
-                      id="plan-name-input"
-                      name="plan-name"
-                      value={planName}
-                      onChange={(event) => setPlanName(event.target.value)}
-                  />
+                  <div className="plan-name-row">
+                      <input
+                          id="plan-name-input"
+                          name="plan-name"
+                          value={planName}
+                          onChange={(event) => setPlanName(event.target.value)}
+                      />
+                      <button
+                          type="button"
+                          className="tool-button panel-action plan-delete-button"
+                          onClick={handleOpenDeletePlan}
+                          aria-label="Delete plan"
+                          title="Delete plan"
+                      >
+                          🗑️
+                      </button>
+                  </div>
                   <div
                       className={
                           isPlanSaving
@@ -1969,7 +2026,7 @@ function App() {
                           onClick={() => setActiveTool("background")}
                           disabled={!backgroundImage}
                       >
-                          Resize
+                          Resize Canvas Image
                       </button>
                   </div>
                   {backgroundUploadError ? (
@@ -1981,16 +2038,23 @@ function App() {
                       <button
                           type="button"
                           className="tool-button panel-action"
-                          onClick={handleCreateNewPlan}
+                          onClick={handleLoadButtonClick}
                       >
-                          Create New Plan
+                          Load Plan
                       </button>
                       <button
                           type="button"
                           className="tool-button panel-action"
-                          onClick={handleLoadButtonClick}
+                          onClick={handleDuplicatePlan}
                       >
-                          Load Plan
+                          Duplicate Plan
+                      </button>
+                      <button
+                          type="button"
+                          className="tool-button panel-action full-width"
+                          onClick={handleCreateNewPlan}
+                      >
+                          Create New Plan
                       </button>
                   </div>
               </section>
@@ -2258,6 +2322,43 @@ function App() {
                               type="button"
                               className="tool-button panel-action"
                               onClick={handleCloseLoadPlan}
+                          >
+                              Cancel
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          ) : null}
+
+          {isDeletePlanOpen ? (
+              <div
+                  className="modal-backdrop"
+                  role="presentation"
+                  onClick={handleCloseDeletePlan}
+              >
+                  <div
+                      className="confirm-modal"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label="Delete current plan"
+                      onClick={(event) => event.stopPropagation()}
+                  >
+                      <h2>Delete plan?</h2>
+                      <p className="panel-note">
+                          This will permanently delete "{planName}".
+                      </p>
+                      <div className="modal-actions">
+                          <button
+                              type="button"
+                              className="tool-button danger-button panel-action"
+                              onClick={handleConfirmDeletePlan}
+                          >
+                              Delete Plan
+                          </button>
+                          <button
+                              type="button"
+                              className="tool-button panel-action"
+                              onClick={handleCloseDeletePlan}
                           >
                               Cancel
                           </button>

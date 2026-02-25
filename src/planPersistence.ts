@@ -168,6 +168,17 @@ const writePersistedPlans = (persistedPlans: PersistedPlans, storage?: StorageLi
   }
 };
 
+const createPlanId = () =>
+  `plan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const createUniquePlanId = (persistedPlans: PersistedPlans): string => {
+  let nextId = createPlanId();
+  while (persistedPlans.plans.some((entry) => entry.plan.id === nextId)) {
+    nextId = createPlanId();
+  }
+  return nextId;
+};
+
 export const listSavedPlanSummaries = (persistedPlans: PersistedPlans): SavedPlanSummary[] =>
   [...persistedPlans.plans]
     .sort((firstEntry, secondEntry) => secondEntry.savedAt.localeCompare(firstEntry.savedAt))
@@ -200,6 +211,65 @@ export const upsertPersistedPlan = (plan: Plan, storage?: StorageLike): Persiste
     },
     storage,
   );
+};
+
+export const savePlanCopy = (plan: Plan, storage?: StorageLike): Plan | null => {
+  const persistedPlans = readPersistedPlans(storage);
+  const timestamp = new Date().toISOString();
+  const copyPlan = clonePlan({
+    ...plan,
+    id: createUniquePlanId(persistedPlans),
+    name: `${plan.name} copy`,
+  });
+
+  const nextPlans = [
+    ...persistedPlans.plans,
+    {
+      plan: copyPlan,
+      savedAt: timestamp,
+    },
+  ];
+
+  const result = writePersistedPlans(
+    {
+      ...persistedPlans,
+      activePlanId: copyPlan.id,
+      plans: nextPlans,
+    },
+    storage,
+  );
+  return result ? copyPlan : null;
+};
+
+export const deletePersistedPlan = (
+  planId: string,
+  storage?: StorageLike,
+): { persistedPlans: PersistedPlans; nextPlan: Plan | null } | null => {
+  const persistedPlans = readPersistedPlans(storage);
+  const nextPlans = persistedPlans.plans.filter((entry) => entry.plan.id !== planId);
+  const nextActivePlanId =
+    persistedPlans.activePlanId === planId
+      ? nextPlans[0]?.plan.id ?? null
+      : persistedPlans.activePlanId;
+
+  const result = writePersistedPlans(
+    {
+      ...persistedPlans,
+      activePlanId: nextActivePlanId,
+      plans: nextPlans,
+    },
+    storage,
+  );
+
+  if (!result) {
+    return null;
+  }
+
+  const nextPlan = nextActivePlanId
+    ? result.plans.find((entry) => entry.plan.id === nextActivePlanId)?.plan ?? null
+    : null;
+
+  return { persistedPlans: result, nextPlan: nextPlan ? clonePlan(nextPlan) : null };
 };
 
 export const getPersistedPlanById = (planId: string, storage?: StorageLike): Plan | null => {

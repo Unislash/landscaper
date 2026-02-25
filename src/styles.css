@@ -18,7 +18,7 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 84px 1fr 320px;
+  grid-template-columns: 95px 1fr 320px;
   min-height: 100vh;
   background: linear-gradient(180deg, #f6f9f4 0%, #e7efe2 100%);
 }
@@ -34,6 +34,7 @@ body {
   padding: 16px 10px;
   border-right: 1px solid #c7d5c2;
   background: #f2f7ee;
+  text-align: center;
 }
 
 .toolbar-group-bottom {
@@ -59,7 +60,7 @@ body {
   color: #17301d;
   padding: 8px 10px;
   font-size: 0.8rem;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
 }
 
@@ -76,18 +77,12 @@ body {
 
 .editor-area {
   position: relative;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   min-height: 100%;
 }
 
 .canvas-region {
   flex: 1;
-  min-height: calc(100vh - 32px);
-  border: 2px dashed #9ab296;
-  border-radius: 14px;
+  min-height: 100%;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -340,7 +335,7 @@ body {
 }
 
 .right-panel {
-  padding: 20px;
+  padding: 16px 16px 16px 20px;
   border-left: 1px solid #c7d5c2;
   background: #f7faf5;
   display: grid;
@@ -372,6 +367,10 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.plan-actions-grid .full-width {
+  grid-column: 1 / -1;
 }
 
 .panel-section.plan-section .plan-actions-grid {
@@ -433,9 +432,10 @@ body {
 
 .file-field {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
 }
 
 .panel-section .file-input {
@@ -455,6 +455,27 @@ body {
   color: #2e4b33;
   cursor: pointer;
   text-transform: none;
+  display: block;
+}
+
+.file-field .tool-button {
+  width: 100%;
+}
+
+.plan-name-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.plan-delete-button {
+  min-width: 40px;
+  padding: 0;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .panel-section {
@@ -736,6 +757,16 @@ body {
   gap: 12px;
 }
 
+.confirm-modal {
+  width: min(420px, 100%);
+  border-radius: 14px;
+  padding: 16px;
+  border: 1px solid #8ba085;
+  background: #f7fbf6;
+  display: grid;
+  gap: 12px;
+}
+
 .help-modal {
   width: min(560px, 100%);
   border-radius: 14px;
@@ -815,6 +846,7 @@ body {
 
 .shape-modal h2,
 .load-plan-modal h2,
+.confirm-modal h2,
 .help-modal h2 {
   margin: 0;
   font-size: 1rem;
