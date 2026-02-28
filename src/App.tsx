@@ -51,6 +51,12 @@ const CANVAS_CENTER_FALLBACK = {
 const MIN_CANVAS_ZOOM = 0.4;
 const MAX_CANVAS_ZOOM = 2.6;
 
+declare global {
+  interface Window {
+    exportElements?: () => void;
+  }
+}
+
 type ResizeHandle = 'top' | 'right' | 'bottom' | 'left';
 
 interface DragState {
@@ -433,6 +439,34 @@ function App() {
     supportsColorBlendMode = null;
     setShapeBitmapVersion((version) => version + 1);
   }, [paletteSignature]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const exportElements = () => {
+      const serialized = JSON.stringify(elements, null, 2);
+      const blob = new Blob([serialized], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const safeName = planName?.trim() || 'plan';
+      const fileName = `${safeName.replace(/[^\w.-]+/g, '_')}-elements.json`;
+
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    };
+
+    window.exportElements = exportElements;
+
+    return () => {
+      delete window.exportElements;
+    };
+  }, [elements, planName]);
 
   const getTintedShapeAsset = useCallback((shapeId: ShapeId, color: string) => {
     const normalizedColor = color.toLowerCase();
