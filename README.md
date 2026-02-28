@@ -2,6 +2,10 @@
 
 Landscaper is a browser-based layout tool for planning outdoor spaces. Users upload a top-down image, create reusable landscape elements, and stamp/move/resize those elements on a canvas.
 
+# Live Demo
+
+A live demo can be found at https://unislash.github.io/landscaper/
+
 ## Quick Start
 
 1. Install dependencies:
