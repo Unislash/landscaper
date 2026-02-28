@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type ChangeEvent,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
@@ -393,6 +394,7 @@ function App() {
   const addElement = useLandscaperStore((state) => state.addElement);
   const updateElement = useLandscaperStore((state) => state.updateElement);
   const deleteElement = useLandscaperStore((state) => state.deleteElement);
+  const reorderElements = useLandscaperStore((state) => state.reorderElements);
   const stamps = useLandscaperStore((state) => state.plan.stamps);
   const stampElement = useLandscaperStore((state) => state.stampElement);
   const moveStamp = useLandscaperStore((state) => state.moveStamp);
@@ -424,8 +426,77 @@ function App() {
   const [savedPlans, setSavedPlans] = useState<SavedPlanSummary[]>([]);
   const [selectedSavedPlanId, setSelectedSavedPlanId] = useState<string | null>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [draggingElementId, setDraggingElementId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    id: string;
+    position: 'before' | 'after';
+  } | null>(null);
   const [, setShapeBitmapVersion] = useState(0);
   const paletteSignature = Object.values(colorToHex).join('|');
+
+  const handleElementDragStart =
+    (elementId: string) => (event: ReactDragEvent<HTMLButtonElement>) => {
+      event.dataTransfer.setData('text/plain', elementId);
+      event.dataTransfer.effectAllowed = 'move';
+      setDraggingElementId(elementId);
+    };
+
+  const handleElementDragOver =
+    (elementId: string) => (event: ReactDragEvent<HTMLLIElement>) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      if (elementId === draggingElementId) {
+        setDropTarget(null);
+        return;
+      }
+      const rect = event.currentTarget.getBoundingClientRect();
+      const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      setDropTarget({ id: elementId, position });
+    };
+
+  const handleElementDrop =
+    (elementId: string) => (event: ReactDragEvent<HTMLLIElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const sourceId = event.dataTransfer.getData('text/plain') || draggingElementId;
+      if (!sourceId || sourceId === elementId) {
+        setDraggingElementId(null);
+        setDropTarget(null);
+        return;
+      }
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      reorderElements(sourceId, elementId, position);
+      setDraggingElementId(null);
+      setDropTarget(null);
+    };
+
+  const handleElementDragEnd = () => {
+    setDraggingElementId(null);
+    setDropTarget(null);
+  };
+
+  const handleElementListDragOver = (event: ReactDragEvent<HTMLUListElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleElementListDrop = (event: ReactDragEvent<HTMLUListElement>) => {
+    event.preventDefault();
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+
+    const sourceId = event.dataTransfer.getData('text/plain') || draggingElementId;
+    if (!sourceId) {
+      return;
+    }
+
+    reorderElements(sourceId, null);
+    setDraggingElementId(null);
+    setDropTarget(null);
+  };
 
   useEffect(() => {
     return () => {
@@ -2104,40 +2175,65 @@ function App() {
                           Add Element
                       </button>
                   </div>
-                  <ul className="element-list">
-                      {elements.map((element) => (
-                          <li key={element.id}>
-                              <button
-                                  type="button"
-                                  className={
-                                      element.id === selectedElementId
-                                          ? "element-list-button selected"
-                                          : "element-list-button"
-                                  }
-                                  onClick={() => selectElement(element.id)}
+                  <ul
+                      className="element-list"
+                      onDragOver={handleElementListDragOver}
+                      onDrop={handleElementListDrop}
+                  >
+                      {elements.map((element) => {
+                          const isSelected = element.id === selectedElementId;
+                          const isDragging = draggingElementId === element.id;
+                          const dropPosition =
+                              dropTarget?.id === element.id
+                                  ? dropTarget.position
+                                  : null;
+
+                          return (
+                              <li
+                                  key={element.id}
+                                  className={`element-list-item${isDragging ? " dragging" : ""}${
+                                      dropPosition ? ` drop-${dropPosition}` : ""
+                                  }`}
+                                  onDragOver={handleElementDragOver(element.id)}
+                                  onDrop={handleElementDrop(element.id)}
                               >
-                                  <span
-                                      className="element-preview"
-                                      aria-hidden="true"
+                                  <button
+                                      type="button"
+                                      className={
+                                          isSelected
+                                              ? "element-list-button selected"
+                                              : "element-list-button"
+                                      }
+                                      onClick={() => selectElement(element.id)}
+                                      draggable
+                                      onDragStart={handleElementDragStart(element.id)}
+                                      onDragEnd={handleElementDragEnd}
+                                      aria-grabbed={isDragging}
                                   >
-                                      {renderShape(
-                                          element.shapeId,
-                                          getColorHex(element.color),
-                                          "element-shape",
-                                      )}
-                                  </span>
-                                  <span className="element-list-text">
-                                      <span className="element-name">
-                                          {element.name}
+                                      <span
+                                          className="element-preview"
+                                          aria-hidden="true"
+                                      >
+                                          {renderShape(
+                                              element.shapeId,
+                                              getColorHex(element.color),
+                                              "element-shape",
+                                          )}
                                       </span>
-                                      <span className="element-meta">
-                                          {element.shapeId} - {element.color} -
-                                          scale {formatScaleDisplay(element.scale)}
+                                      <span className="element-list-text">
+                                          <span className="element-name">
+                                              {element.name}
+                                          </span>
+                                          <span className="element-meta">
+                                              {element.shapeId} - {element.color} -
+                                              scale{" "}
+                                              {formatScaleDisplay(element.scale)}
+                                          </span>
                                       </span>
-                                  </span>
-                              </button>
-                          </li>
-                      ))}
+                                  </button>
+                              </li>
+                          );
+                      })}
                   </ul>
               </section>
 

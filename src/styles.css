@@ -557,6 +557,33 @@ body {
   gap: 8px;
 }
 
+.element-list-item {
+  position: relative;
+}
+
+.element-list-item.dragging {
+  opacity: 0.6;
+}
+
+.element-list-item.drop-before::before,
+.element-list-item.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: #5f8759;
+}
+
+.element-list-item.drop-before::before {
+  top: -6px;
+}
+
+.element-list-item.drop-after::after {
+  bottom: -6px;
+}
+
 .element-list-button {
   width: 100%;
   border: 1px solid #c8d7c4;
@@ -570,6 +597,10 @@ body {
   gap: 10px;
   align-items: center;
   color: #17301d;
+}
+
+.element-list-button[aria-grabbed="true"] {
+  cursor: grabbing;
 }
 
 .element-list-button.selected {

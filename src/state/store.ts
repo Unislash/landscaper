@@ -359,6 +359,54 @@ const storeCreator: StateCreator<LandscaperStore> = (set) => ({
       'elements/delete',
     ),
 
+  reorderElements: (sourceElementId, destinationElementId, position = 'before') =>
+    set(
+      (state) => {
+        if (sourceElementId === destinationElementId) {
+          return state;
+        }
+
+        const sourceIndex = state.plan.elements.findIndex(
+          (element) => element.id === sourceElementId,
+        );
+        if (sourceIndex === -1) {
+          return state;
+        }
+
+        const nextElements = [...state.plan.elements];
+        const [movedElement] = nextElements.splice(sourceIndex, 1);
+        let targetIndex =
+          destinationElementId === null
+            ? nextElements.length
+            : nextElements.findIndex((element) => element.id === destinationElementId);
+
+        if (targetIndex === -1) {
+          return state;
+        }
+
+        if (destinationElementId !== null && position === 'after') {
+          targetIndex += 1;
+        }
+
+        if (targetIndex === sourceIndex) {
+          return state;
+        }
+
+        nextElements.splice(targetIndex, 0, movedElement);
+
+        return {
+          ...state,
+          history: appendHistory(state, 'Reorder elements'),
+          plan: {
+            ...state.plan,
+            elements: nextElements,
+          },
+        };
+      },
+      false,
+      'elements/reorder',
+    ),
+
   addStamp: (stamp) =>
     set(
       (state) => ({

@@ -159,6 +159,11 @@ export interface ElementMutations {
     updates: Partial<Omit<PlanElement, 'id'>>,
   ) => void;
   deleteElement: (elementId: string) => void;
+  reorderElements: (
+    sourceElementId: string,
+    destinationElementId: string | null,
+    position?: 'before' | 'after',
+  ) => void;
 }
 
 export interface StampMutations {
