@@ -1,0 +1,65 @@
+[
+  {
+    "id": "element-seeded-shrub",
+    "name": "Bush",
+    "shapeId": "bush-flowers3",
+    "color": "Green",
+    "scale": 0.924697856528139
+  },
+  {
+    "id": "element-fc92fade-2b93-48e3-95f1-27ab339c17af",
+    "name": "Shrub",
+    "shapeId": "flower2",
+    "color": "Green",
+    "scale": 0.6123419849854567
+  },
+  {
+    "id": "element-9ddba0f0-08f3-4ad5-963e-5f58fc5feae8",
+    "name": "Grass",
+    "shapeId": "grass1",
+    "color": "Green",
+    "scale": 0.3986290485558551
+  },
+  {
+    "id": "element-25fa5024-de8c-4f29-a51e-12cbd3fc7713",
+    "name": "Flowers 1",
+    "shapeId": "flower1",
+    "color": "Moss",
+    "scale": 0.3674254869098377
+  },
+  {
+    "id": "element-34fd8fe9-e519-406c-a898-040a2098a6f2",
+    "name": "Flowers 2",
+    "shapeId": "flower1",
+    "color": "Rose",
+    "scale": 0.4199850671976232
+  },
+  {
+    "id": "element-8c662984-9b14-4eba-aa17-bef057f9f46c",
+    "name": "Flowers 3",
+    "shapeId": "bush-flowers1",
+    "color": "Moss",
+    "scale": 0.628826357923117
+  },
+  {
+    "id": "element-fe8b763a-1748-4134-8eff-63222515ab8b",
+    "name": "Maple Tree",
+    "shapeId": "bush-scratchy1",
+    "color": "Coral",
+    "scale": 1.911730658065835
+  },
+  {
+    "id": "element-10025935-8138-413d-b1a0-f5fb79b434d6",
+    "name": "Stone",
+    "shapeId": "rock1",
+    "color": "Olive Gray",
+    "scale": 0.4506249604985279
+  },
+  {
+    "id": "element-827f054b-0dc3-4c64-bbc6-6c6b3e0e6c66",
+    "name": "Pond",
+    "shapeId": "plant08_round_shrub_small",
+    "color": "Azure",
+    "scale": 1.0774290194757117
+  }
+]

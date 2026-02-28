@@ -14,6 +14,7 @@ import {
   type Stamp,
   type UiState,
 } from './types';
+import exampleElements from '../example-elements.json';
 
 const SEEDED_ELEMENT_ID = 'element-seeded-shrub';
 const PLAN_ID = 'plan-localhost';
@@ -34,13 +35,22 @@ const buildSeededElement = (): PlanElement => ({
   scale: 1,
 });
 
+const seededElements = Array.isArray(exampleElements) ? (exampleElements as PlanElement[]) : [];
+const buildSeededElements = (): PlanElement[] => {
+  if (seededElements.length === 0) {
+    return [buildSeededElement()];
+  }
+
+  return seededElements.map((element) => ({ ...element }));
+};
+
 const createPlan = (id: string, name = 'Untitled Plan'): Plan => ({
   id,
   name,
   backgroundImage: null,
   backgroundImageSize: null,
   backgroundTransform: null,
-  elements: [buildSeededElement()],
+  elements: buildSeededElements(),
   stamps: [],
   viewport: {
     zoom: 1,
