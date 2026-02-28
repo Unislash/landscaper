@@ -1922,8 +1922,8 @@ function App() {
                               ) : (
                                   <p className="canvas-empty-state">
                                       Upload a canvas image (under{" "}
-                                      {BACKGROUND_IMAGE_MAX_MB}MB) to start your
-                                      layout.
+                                      {BACKGROUND_IMAGE_MAX_MB}MB) to start your design. <br /><br />
+                                      You can use a top-down outline of your space, a google maps screenshot of your yard, or<br /> any image that you want to use as the background for your design.
                                   </p>
                               )}
                               <div
