@@ -779,6 +779,18 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === 'Escape' &&
+        (isLoadPlanOpen || isDeletePlanOpen || isHelpOpen || isShapePickerOpen)
+      ) {
+        event.preventDefault();
+        setIsLoadPlanOpen(false);
+        setIsDeletePlanOpen(false);
+        setIsHelpOpen(false);
+        setIsShapePickerOpen(false);
+        return;
+      }
+
       if (isEditableTarget(event.target)) {
         return;
       }
@@ -809,8 +821,16 @@ function App() {
     };
   }, [
     deleteStamp,
+    isDeletePlanOpen,
+    isHelpOpen,
+    isLoadPlanOpen,
+    isShapePickerOpen,
     resizeMode,
     selectedStampId,
+    setIsDeletePlanOpen,
+    setIsHelpOpen,
+    setIsLoadPlanOpen,
+    setIsShapePickerOpen,
     setResizeMode,
     setDragPreview,
     setDragState,
